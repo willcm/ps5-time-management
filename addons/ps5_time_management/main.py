@@ -770,7 +770,7 @@ def main():
     logger.debug(f"Full MQTT config: {mqtt_config}")
     
     # Set up MQTT client
-    mqtt_client = mqtt.Client(client_id="ps5_time_management")
+    mqtt_client = mqtt.Client(client_id="ps5_time_management", callback_api_version=mqtt.CallbackAPIVersion.VERSION1)
     mqtt_client.on_connect = on_connect
     mqtt_client.on_message = on_message
     
