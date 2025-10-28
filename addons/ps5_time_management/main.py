@@ -733,6 +733,12 @@ def get_mqtt_config():
         'discovery_topic': os.environ.get('DISCOVERY_TOPIC', 'homeassistant')
     }
     
+    # Debug: Log all MQTT-related environment variables
+    logger.debug("MQTT Environment Variables:")
+    for key, value in os.environ.items():
+        if 'MQTT' in key.upper():
+            logger.debug(f"  {key}: {value}")
+    
     # If Home Assistant provided MQTT config, use it
     if ha_mqtt_config['host']:
         logger.info("Using Home Assistant MQTT service configuration")
@@ -747,6 +753,13 @@ def get_mqtt_config():
         'password': mqtt_config.get('pass', ''),
         'discovery_topic': mqtt_config.get('discovery_topic', 'homeassistant')
     }
+    
+    # If no manual config provided, try to use Home Assistant's default MQTT user
+    if not manual_config['user'] and not manual_config['password']:
+        logger.info("No MQTT credentials provided, attempting anonymous connection")
+        # Try without authentication first
+        manual_config['user'] = None
+        manual_config['password'] = None
     
     logger.info("Using manual MQTT configuration")
     return manual_config
@@ -770,7 +783,7 @@ def main():
     logger.debug(f"Full MQTT config: {mqtt_config}")
     
     # Set up MQTT client
-    mqtt_client = mqtt.Client(client_id="ps5_time_management", callback_api_version=mqtt.CallbackAPIVersion.VERSION1)
+    mqtt_client = mqtt.Client(client_id="ps5_time_management", callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
     mqtt_client.on_connect = on_connect
     mqtt_client.on_message = on_message
     
