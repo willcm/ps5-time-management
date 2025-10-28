@@ -2,11 +2,15 @@
 
 bashio::log.info "Starting PS5 Time Management add-on..."
 
+# Debug: Check available environment variables
+bashio::log.info "Checking environment variables..."
+bashio::log.info "SUPERVISOR_TOKEN available: $([ -n "$SUPERVISOR_TOKEN" ] && echo "yes" || echo "no")"
+
 # Try to get MQTT configuration from Supervisor API
 bashio::log.info "Attempting to get MQTT configuration from Supervisor API..."
 
 # Check if we can access the Supervisor API
-if curl -s -H "Authorization: Bearer $SUPERVISOR_TOKEN" http://supervisor/services/mqtt > /dev/null 2>&1; then
+if [ -n "$SUPERVISOR_TOKEN" ] && curl -s -H "Authorization: Bearer $SUPERVISOR_TOKEN" http://supervisor/services/mqtt > /dev/null 2>&1; then
     bashio::log.info "Supervisor API accessible, getting MQTT configuration..."
     
     # Get MQTT configuration from Supervisor API
@@ -26,7 +30,7 @@ if curl -s -H "Authorization: Bearer $SUPERVISOR_TOKEN" http://supervisor/servic
         bashio::log.warning "No MQTT configuration found in Supervisor API"
     fi
 else
-    bashio::log.warning "Cannot access Supervisor API, falling back to Bashio"
+    bashio::log.warning "Cannot access Supervisor API (token: $([ -n "$SUPERVISOR_TOKEN" ] && echo "available" || echo "missing")), falling back to Bashio"
     
     # Fallback to Bashio method
     if bashio::config.is_empty 'mqtt' && bashio::var.has_value "$(bashio::services 'mqtt')"; then
