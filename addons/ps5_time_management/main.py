@@ -51,6 +51,7 @@ CORS(app)
 config = {}
 mqtt_client = None
 discovered_users = set()  # Set of discovered usernames
+published_sensors = set()  # Track which sensors we've published via MQTT Discovery
 current_session = {
     'user': None,
     'game': None,
@@ -438,6 +439,8 @@ def handle_device_update(ps5_id, data):
             if player and player not in discovered_users:
                 discovered_users.add(player)
                 logger.info(f"Discovered new user: {player}")
+                # Publish sensors for new user
+                publish_user_sensors(player)
     
     # Handle activity changes
     activity = data.get('activity')
@@ -463,6 +466,142 @@ def handle_device_update(ps5_id, data):
             if session['ps5_id'] == ps5_id:
                 time_manager.end_session(session_id)
                 logger.info(f"Ended session due to PS5 {ps5_id} going to standby")
+    
+    # Update sensor states for all discovered users
+    update_all_sensor_states()
+
+def publish_user_sensors(user):
+    """Publish MQTT Discovery sensors for a user"""
+    discovery_topic = config.get('mqtt', {}).get('discovery_topic', 'homeassistant')
+    
+    # Sensor configurations for each user
+    sensors = [
+        {
+            'name': f'PS5 {user} Daily Playtime',
+            'unique_id': f'ps5_time_management_{user.lower()}_daily',
+            'state_topic': f'ps5_time_management/{user}/daily',
+            'unit_of_measurement': 'min',
+            'icon': 'mdi:clock-outline',
+            'device_class': 'duration'
+        },
+        {
+            'name': f'PS5 {user} Weekly Playtime',
+            'unique_id': f'ps5_time_management_{user.lower()}_weekly',
+            'state_topic': f'ps5_time_management/{user}/weekly',
+            'unit_of_measurement': 'min',
+            'icon': 'mdi:calendar-week',
+            'device_class': 'duration'
+        },
+        {
+            'name': f'PS5 {user} Monthly Playtime',
+            'unique_id': f'ps5_time_management_{user.lower()}_monthly',
+            'state_topic': f'ps5_time_management/{user}/monthly',
+            'unit_of_measurement': 'min',
+            'icon': 'mdi:calendar-month',
+            'device_class': 'duration'
+        },
+        {
+            'name': f'PS5 {user} Time Remaining',
+            'unique_id': f'ps5_time_management_{user.lower()}_remaining',
+            'state_topic': f'ps5_time_management/{user}/remaining',
+            'unit_of_measurement': 'min',
+            'icon': 'mdi:timer-outline',
+            'device_class': 'duration'
+        },
+        {
+            'name': f'PS5 {user} Current Game',
+            'unique_id': f'ps5_time_management_{user.lower()}_game',
+            'state_topic': f'ps5_time_management/{user}/game',
+            'icon': 'mdi:gamepad-variant'
+        },
+        {
+            'name': f'PS5 {user} Session Active',
+            'unique_id': f'ps5_time_management_{user.lower()}_active',
+            'state_topic': f'ps5_time_management/{user}/active',
+            'icon': 'mdi:play'
+        }
+    ]
+    
+    # Publish each sensor configuration
+    for sensor in sensors:
+        config_topic = f"{discovery_topic}/sensor/{sensor['unique_id']}/config"
+        
+        sensor_config = {
+            'name': sensor['name'],
+            'unique_id': sensor['unique_id'],
+            'state_topic': sensor['state_topic'],
+            'icon': sensor['icon'],
+            'device': {
+                'identifiers': [f'ps5_time_management_{user.lower()}'],
+                'name': f'PS5 Time Management - {user}',
+                'model': 'PS5 Time Management',
+                'manufacturer': 'PS5 Time Management Add-on'
+            }
+        }
+        
+        # Add optional fields
+        if 'unit_of_measurement' in sensor:
+            sensor_config['unit_of_measurement'] = sensor['unit_of_measurement']
+        if 'device_class' in sensor:
+            sensor_config['device_class'] = sensor['device_class']
+        
+        try:
+            mqtt_client.publish(config_topic, json.dumps(sensor_config), retain=True)
+            published_sensors.add(sensor['unique_id'])
+            logger.info(f"Published sensor config: {sensor['name']}")
+        except Exception as e:
+            logger.error(f"Failed to publish sensor config for {sensor['name']}: {e}")
+
+def update_all_sensor_states():
+    """Update MQTT sensor states for all discovered users"""
+    for user in discovered_users:
+        update_user_sensor_states(user)
+
+def update_user_sensor_states(user):
+    """Update MQTT sensor states for a specific user"""
+    try:
+        # Get user stats
+        stats = time_manager.get_user_stats(user)
+        
+        # Get current session info
+        current_session = None
+        for session_id, session in time_manager.active_sessions.items():
+            if session['user'] == user:
+                current_session = session
+                break
+        
+        # Calculate time remaining (assuming 120 min daily limit)
+        daily_limit = 120  # This could be made configurable
+        daily_time = stats.get('daily', 0)
+        time_remaining = max(0, daily_limit - daily_time)
+        
+        # Publish sensor states
+        base_topic = f"ps5_time_management/{user}"
+        
+        # Daily playtime
+        mqtt_client.publish(f"{base_topic}/daily", str(daily_time), retain=True)
+        
+        # Weekly playtime
+        mqtt_client.publish(f"{base_topic}/weekly", str(stats.get('weekly', 0)), retain=True)
+        
+        # Monthly playtime
+        mqtt_client.publish(f"{base_topic}/monthly", str(stats.get('monthly', 0)), retain=True)
+        
+        # Time remaining
+        mqtt_client.publish(f"{base_topic}/remaining", str(time_remaining), retain=True)
+        
+        # Current game
+        current_game = current_session['game'] if current_session else 'None'
+        mqtt_client.publish(f"{base_topic}/game", current_game, retain=True)
+        
+        # Session active
+        session_active = 'ON' if current_session else 'OFF'
+        mqtt_client.publish(f"{base_topic}/active", session_active, retain=True)
+        
+        logger.debug(f"Updated sensor states for {user}")
+        
+    except Exception as e:
+        logger.error(f"Failed to update sensor states for {user}: {e}")
 
 def handle_state_change(ps5_id, data):
     """Handle PS5 state changes (on/off)"""
@@ -861,6 +1000,22 @@ def main():
     # Start timer checking thread
     timer_thread = Thread(target=check_timers, daemon=True)
     timer_thread.start()
+    
+    # Start periodic sensor updates
+    def periodic_sensor_update():
+        """Update sensor states every 30 seconds"""
+        while True:
+            try:
+                time.sleep(30)
+                if discovered_users and mqtt_client:
+                    update_all_sensor_states()
+            except Exception as e:
+                logger.error(f"Error in periodic sensor update: {e}")
+    
+    # Start sensor update thread
+    sensor_thread = Thread(target=periodic_sensor_update, daemon=True)
+    sensor_thread.start()
+    logger.info("Started periodic sensor update thread")
     
     # Start Flask app
     port = int(os.environ.get('PORT', 8080))
