@@ -388,15 +388,10 @@ def on_connect(client, userdata, flags, reason_code, properties):
         discover_users_from_ps5_mqtt()
         
         # Subscribe to ps5-mqtt topics
-        topic_prefix = config.get('mqtt_topic_prefix', 'ps5')
-        client.subscribe(f"{topic_prefix}/+/state")
-        client.subscribe(f"{topic_prefix}/+/game")
-        client.subscribe(f"{topic_prefix}/+/user")
-        client.subscribe(f"{topic_prefix}/+/status")
-        client.subscribe(f"{topic_prefix}/+/activity")  # Additional topic for user activity
-        
-        # Subscribe to all topics to discover users dynamically
-        client.subscribe(f"{topic_prefix}/+/+")
+        topic_prefix = config.get('mqtt_topic_prefix', 'ps5-mqtt')
+        subscribe_topic = f"{topic_prefix}/#"
+        logger.info(f"Subscribing to MQTT topic: {subscribe_topic}")
+        client.subscribe(subscribe_topic)
         
         logger.info(f"Subscribed to MQTT topics with prefix: {topic_prefix}")
     else:
@@ -407,21 +402,28 @@ def on_message(client, userdata, msg):
     topic = msg.topic
     payload = msg.payload.decode('utf-8')
     
+    # Log ALL MQTT messages we receive
+    logger.info(f"MQTT MESSAGE RECEIVED - Topic: {topic}, Payload: {payload}")
+    
     try:
         data = json.loads(payload)
-        logger.info(f"Received MQTT message on {topic}: {data}")
+        logger.info(f"Parsed MQTT data: {data}")
         
         # Parse topic to get PS5 ID
         parts = topic.split('/')
         if len(parts) >= 2:
             ps5_id = parts[1]
+            logger.info(f"Extracted PS5 ID: {ps5_id}")
             
             # Handle the main ps5-mqtt/{device_id} topic which contains all device info
             if len(parts) == 2 and parts[0] == 'ps5-mqtt':
+                logger.info(f"Processing as device update for PS5 {ps5_id}")
                 handle_device_update(ps5_id, data)
+            else:
+                logger.info(f"Topic doesn't match expected pattern. Parts: {parts}")
                 
     except json.JSONDecodeError:
-        logger.error(f"Failed to parse JSON from topic {topic}")
+        logger.error(f"Failed to parse JSON from topic {topic}, payload: {payload}")
     except Exception as e:
         logger.error(f"Error handling MQTT message: {e}")
 
