@@ -734,10 +734,16 @@ def get_mqtt_config():
     }
     
     # Debug: Log all MQTT-related environment variables
-    logger.debug("MQTT Environment Variables:")
+    logger.info("MQTT Environment Variables:")
     for key, value in os.environ.items():
         if 'MQTT' in key.upper():
-            logger.debug(f"  {key}: {value}")
+            logger.info(f"  {key}: {value}")
+    
+    # Also check for other common MQTT environment variables
+    logger.info("All Environment Variables:")
+    for key, value in os.environ.items():
+        if any(keyword in key.upper() for keyword in ['MQTT', 'MOSQUITTO', 'BROKER']):
+            logger.info(f"  {key}: {value}")
     
     # If Home Assistant provided MQTT config, use it
     if ha_mqtt_config['host']:
@@ -754,12 +760,16 @@ def get_mqtt_config():
         'discovery_topic': mqtt_config.get('discovery_topic', 'homeassistant')
     }
     
-    # If no manual config provided, try to use Home Assistant's default MQTT user
+    # If no manual config provided, try common Mosquitto credentials
     if not manual_config['user'] and not manual_config['password']:
-        logger.info("No MQTT credentials provided, attempting anonymous connection")
-        # Try without authentication first
-        manual_config['user'] = None
-        manual_config['password'] = None
+        logger.info("No MQTT credentials provided, trying common Mosquitto credentials")
+        # Try common Mosquitto add-on credentials
+        common_users = ['addon_ps5_time_management', 'homeassistant', 'mqtt']
+        for user in common_users:
+            logger.info(f"Attempting connection with user: {user}")
+            manual_config['user'] = user
+            manual_config['password'] = ''  # Try empty password first
+            break
     
     logger.info("Using manual MQTT configuration")
     return manual_config
