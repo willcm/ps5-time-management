@@ -101,8 +101,7 @@ class PS5TimeManager:
         
         # User limits table - configured time limits
         c.execute('''CREATE TABLE IF NOT EXISTS user_limits
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      user TEXT PRIMARY KEY,
+                     (user TEXT PRIMARY KEY,
                       daily_limit_minutes INTEGER,
                       weekly_limit_minutes INTEGER,
                       monthly_limit_minutes INTEGER,

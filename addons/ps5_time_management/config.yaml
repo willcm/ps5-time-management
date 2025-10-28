@@ -1,5 +1,5 @@
 name: PS5 Time Management
-version: 1.0.1
+version: 1.0.2
 slug: ps5_time_management
 description: Track and manage PS5 playtime with user authentication, time limits, and parental controls
 url: https://github.com/willcm/ps5-time-management
