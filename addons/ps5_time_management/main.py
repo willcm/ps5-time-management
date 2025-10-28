@@ -752,6 +752,30 @@ def get_mqtt_config():
         logger.info("Using Home Assistant MQTT service configuration")
         return ha_mqtt_config
     
+    # Try to read MQTT config from Home Assistant configuration files
+    logger.info("Attempting to read MQTT config from Home Assistant files")
+    try:
+        # Check common Home Assistant config locations
+        config_paths = [
+            '/config/configuration.yaml',
+            '/config/mqtt.yaml',
+            '/data/options.json'  # This might contain MQTT config
+        ]
+        
+        for config_path in config_paths:
+            if os.path.exists(config_path):
+                logger.info(f"Found config file: {config_path}")
+                # Try to read and parse MQTT config from these files
+                # This is a simplified approach - in practice, we'd need proper YAML parsing
+                with open(config_path, 'r') as f:
+                    content = f.read()
+                    if 'mqtt:' in content.lower():
+                        logger.info(f"Found MQTT configuration in {config_path}")
+                        # For now, just log that we found it
+                        break
+    except Exception as e:
+        logger.warning(f"Could not read Home Assistant config files: {e}")
+    
     # Fall back to manual configuration
     mqtt_config = config.get('mqtt', {})
     manual_config = {
@@ -762,16 +786,12 @@ def get_mqtt_config():
         'discovery_topic': mqtt_config.get('discovery_topic', 'homeassistant')
     }
     
-    # If no manual config provided, try common Mosquitto credentials
+    # If no manual config provided, try anonymous connection first
     if not manual_config['user'] and not manual_config['password']:
-        logger.info("No MQTT credentials provided, trying common Mosquitto credentials")
-        # Try common Mosquitto add-on credentials
-        common_users = ['addon_ps5_time_management', 'homeassistant', 'mqtt']
-        for user in common_users:
-            logger.info(f"Attempting connection with user: {user}")
-            manual_config['user'] = user
-            manual_config['password'] = ''  # Try empty password first
-            break
+        logger.info("No MQTT credentials provided, attempting anonymous connection")
+        # Try without authentication first (like ps5-mqtt does)
+        manual_config['user'] = None
+        manual_config['password'] = None
     
     logger.info("Using manual MQTT configuration")
     return manual_config
