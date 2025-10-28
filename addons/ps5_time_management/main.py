@@ -409,34 +409,58 @@ def on_message(client, userdata, msg):
     
     try:
         data = json.loads(payload)
-        logger.debug(f"Received MQTT message on {topic}: {data}")
+        logger.info(f"Received MQTT message on {topic}: {data}")
         
         # Parse topic to get PS5 ID
         parts = topic.split('/')
         if len(parts) >= 2:
             ps5_id = parts[1]
             
-            # Discover users from MQTT messages
-            if 'user' in topic and isinstance(data, dict):
-                username = data.get('user') or data.get('username') or data.get('accountName')
-                if username and username not in discovered_users:
-                    discovered_users.add(username)
-                    logger.info(f"Discovered new user from MQTT: {username}")
-            
-            # Handle different message types
-            if 'state' in topic:
-                handle_state_change(ps5_id, data)
-            elif 'game' in topic:
-                handle_game_change(ps5_id, data)
-            elif 'user' in topic:
-                handle_user_change(ps5_id, data)
-            elif 'activity' in topic:
-                handle_activity_change(ps5_id, data)
+            # Handle the main ps5-mqtt/{device_id} topic which contains all device info
+            if len(parts) == 2 and parts[0] == 'ps5-mqtt':
+                handle_device_update(ps5_id, data)
                 
     except json.JSONDecodeError:
         logger.error(f"Failed to parse JSON from topic {topic}")
     except Exception as e:
         logger.error(f"Error handling MQTT message: {e}")
+
+def handle_device_update(ps5_id, data):
+    """Handle complete device update from ps5-mqtt"""
+    logger.info(f"Processing device update for PS5 {ps5_id}: {data}")
+    
+    # Extract players from the message
+    players = data.get('players', [])
+    if players:
+        for player in players:
+            if player and player not in discovered_users:
+                discovered_users.add(player)
+                logger.info(f"Discovered new user: {player}")
+    
+    # Handle activity changes
+    activity = data.get('activity')
+    if activity == 'playing' and players:
+        # Start tracking session for active players
+        for player in players:
+            if player:
+                game_name = data.get('title_name', 'Unknown Game')
+                time_manager.start_session(player, game_name, ps5_id)
+                logger.info(f"Started session for {player} playing {game_name}")
+    elif activity in ['idle', 'none']:
+        # End sessions for this PS5
+        for session_id, session in list(time_manager.active_sessions.items()):
+            if session['ps5_id'] == ps5_id:
+                time_manager.end_session(session_id)
+                logger.info(f"Ended session for PS5 {ps5_id}")
+    
+    # Handle power state
+    power = data.get('power')
+    if power == 'STANDBY':
+        # End all sessions for this PS5 when it goes to standby
+        for session_id, session in list(time_manager.active_sessions.items()):
+            if session['ps5_id'] == ps5_id:
+                time_manager.end_session(session_id)
+                logger.info(f"Ended session due to PS5 {ps5_id} going to standby")
 
 def handle_state_change(ps5_id, data):
     """Handle PS5 state changes (on/off)"""
