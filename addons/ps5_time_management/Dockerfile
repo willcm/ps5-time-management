@@ -39,9 +39,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application files
 COPY . ./
 
+# Make startup script executable
+RUN chmod a+x run.sh
+
 # Set up data directory
 VOLUME [ "/data" ]
 
-# Run the application
-CMD [ "python3", "main.py" ]
+# Run the application via startup script
+CMD [ "/app/run.sh" ]
 
