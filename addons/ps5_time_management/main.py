@@ -729,7 +729,7 @@ def get_mqtt_config():
     # Check for Home Assistant MQTT service configuration
     ha_mqtt_config = {
         'host': os.environ.get('MQTT_HOST'),
-        'port': int(os.environ.get('MQTT_PORT', 1883)),
+        'port': int(os.environ.get('MQTT_PORT', 1883)) if os.environ.get('MQTT_PORT') else 1883,
         'user': os.environ.get('MQTT_USERNAME'),
         'password': os.environ.get('MQTT_PASSWORD'),
         'discovery_topic': os.environ.get('DISCOVERY_TOPIC', 'homeassistant')
@@ -739,13 +739,13 @@ def get_mqtt_config():
     logger.info("MQTT Environment Variables:")
     for key, value in os.environ.items():
         if 'MQTT' in key.upper():
-            logger.info(f"  {key}: {value}")
+            logger.info(f"  {key}: '{value}'")
     
     # Also check for other common MQTT environment variables
     logger.info("All Environment Variables:")
     for key, value in os.environ.items():
         if any(keyword in key.upper() for keyword in ['MQTT', 'MOSQUITTO', 'BROKER']):
-            logger.info(f"  {key}: {value}")
+            logger.info(f"  {key}: '{value}'")
     
     # If Home Assistant provided MQTT config, use it
     if ha_mqtt_config['host']:
