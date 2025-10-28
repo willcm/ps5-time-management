@@ -229,19 +229,31 @@ class PS5TimeManager:
         return True
     
     def get_user_time_today(self, user):
-        """Get total time played today by user"""
+        """Get total time played today by user (including active sessions)"""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         today = datetime.now().date()
         
+        # Get completed sessions from database
         c.execute('''SELECT total_minutes FROM user_stats 
                      WHERE user=? AND date=?''',
                  (user, today))
         
         result = c.fetchone()
+        completed_time = result[0] if result else 0
         conn.close()
         
-        return result[0] if result else 0
+        # Add time from active sessions
+        active_time = 0
+        for session_id, session in self.active_sessions.items():
+            if session['user'] == user:
+                # Calculate time elapsed in current session
+                elapsed = (datetime.now() - session['start_time']).total_seconds()
+                active_time += elapsed / 60  # Convert to minutes
+        
+        total_time = completed_time + active_time
+        logger.debug(f"User {user} time today: {completed_time} completed + {active_time:.1f} active = {total_time:.1f} total")
+        return int(total_time)
     
     def get_user_weekly_time(self, user):
         """Get total time played this week by user"""
@@ -600,6 +612,13 @@ def update_user_sensor_states(user):
         mqtt_client.publish(f"{base_topic}/active", session_active, retain=True)
         
         logger.debug(f"Updated sensor states for {user}: daily={daily_time}, weekly={weekly_time}, monthly={monthly_time}, remaining={time_remaining}")
+        
+        # Log current session info for debugging
+        if current_session:
+            elapsed_minutes = (datetime.now() - current_session['start_time']).total_seconds() / 60
+            logger.debug(f"Current session for {user}: {current_session['game']} (elapsed: {elapsed_minutes:.1f} min)")
+        else:
+            logger.debug(f"No active session for {user}")
         
     except Exception as e:
         logger.error(f"Failed to update sensor states for {user}: {e}")
