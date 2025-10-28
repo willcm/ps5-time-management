@@ -1,5 +1,5 @@
 name: PS5 Time Management
-version: 1.1.4
+version: 1.1.5
 slug: ps5_time_management
 description: Track and manage PS5 playtime with user authentication, time limits, and parental controls
 url: https://github.com/willcm/ps5-time-management
@@ -20,6 +20,7 @@ panel_icon: mdi:playstation
 stage: stable
 homeassistant: 2023.1.0
 hassio_api: true
+hassio_role: default
 services:
   - mqtt:need
 stdin: true
