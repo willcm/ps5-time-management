@@ -71,6 +71,47 @@ class PS5TimeManager:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         
+        # Check if user_limits table exists with old schema and migrate
+        try:
+            c.execute("PRAGMA table_info(user_limits)")
+            columns = c.fetchall()
+            if columns:
+                # Check if old schema exists (has both id and user as primary keys)
+                has_id = any(col[1] == 'id' for col in columns)
+                has_user = any(col[1] == 'user' for col in columns)
+                if has_id and has_user:
+                    logging.info("Migrating user_limits table from old schema")
+                    # Create new table with correct schema
+                    c.execute('''CREATE TABLE user_limits_new
+                                 (user TEXT PRIMARY KEY,
+                                  daily_limit_minutes INTEGER,
+                                  weekly_limit_minutes INTEGER,
+                                  monthly_limit_minutes INTEGER,
+                                  current_daily_time INTEGER DEFAULT 0,
+                                  current_weekly_time INTEGER DEFAULT 0,
+                                  current_monthly_time INTEGER DEFAULT 0,
+                                  reset_date DATE,
+                                  enabled BOOLEAN DEFAULT 1)''')
+                    # Copy data from old table
+                    c.execute('''INSERT INTO user_limits_new 
+                                 (user, daily_limit_minutes, weekly_limit_minutes, 
+                                  monthly_limit_minutes, current_daily_time, 
+                                  current_weekly_time, current_monthly_time, 
+                                  reset_date, enabled)
+                                 SELECT user, daily_limit_minutes, weekly_limit_minutes,
+                                        monthly_limit_minutes, current_daily_time,
+                                        current_weekly_time, current_monthly_time,
+                                        reset_date, enabled
+                                 FROM user_limits''')
+                    # Drop old table and rename new one
+                    c.execute('DROP TABLE user_limits')
+                    c.execute('ALTER TABLE user_limits_new RENAME TO user_limits')
+                    conn.commit()
+                    logging.info("Successfully migrated user_limits table")
+        except Exception as e:
+            logging.warning(f"Migration check failed: {e}")
+            # Continue with normal table creation
+        
         # Sessions table - individual gaming sessions
         c.execute('''CREATE TABLE IF NOT EXISTS sessions
                      (id INTEGER PRIMARY KEY AUTOINCREMENT,
