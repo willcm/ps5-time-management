@@ -377,9 +377,9 @@ def discover_users_from_ps5_mqtt():
     # This will be populated as we receive MQTT messages
     logger.info(f"Currently discovered users: {list(discovered_users)}")
 
-def on_connect(client, userdata, flags, rc):
+def on_connect(client, userdata, flags, reason_code, properties):
     """Callback when connected to MQTT broker"""
-    if rc == 0:
+    if reason_code == 0:
         logger.info("Connected to MQTT broker successfully")
         
         # Discover users from ps5-mqtt configuration
@@ -398,7 +398,7 @@ def on_connect(client, userdata, flags, rc):
         
         logger.info(f"Subscribed to MQTT topics with prefix: {topic_prefix}")
     else:
-        logger.error(f"Failed to connect to MQTT broker with code {rc}")
+        logger.error(f"Failed to connect to MQTT broker with code {reason_code}")
 
 def on_message(client, userdata, msg):
     """Callback when message received from MQTT broker"""
