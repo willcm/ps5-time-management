@@ -1,0 +1,14 @@
+*.db
+*.pyc
+__pycache__/
+.env
+.vscode/
+*.log
+data/
+.DS_Store
+
+# Home Assistant specific
+local/
+addon_config/
+options.json.backup
+

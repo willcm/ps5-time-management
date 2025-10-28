@@ -1,0 +1,119 @@
+# Dynamic Home Assistant sensor configuration for PS5 Time Management
+# This configuration automatically discovers users from ps5-mqtt
+# No manual configuration needed!
+
+rest:
+  # Health check and user discovery
+  - resource: "http://localhost:8080/api/health"
+    scan_interval: 300
+    sensor:
+      - name: "PS5 Time Management Status"
+        value_template: '{{ "Online" if value_json.status == "ok" else "Offline" }}'
+        
+  - resource: "http://localhost:8080/api/users"
+    scan_interval: 60  # Check for new users every minute
+    sensor:
+      - name: "PS5 Discovered Users"
+        value_template: '{{ value_json.users | join(", ") }}'
+        icon: 'mdi:account-multiple'
+
+# Template sensors that work with discovered users
+template:
+  - sensor:
+      # Show list of discovered users
+      - name: "PS5 Users Count"
+        state: >
+          {% set users = states('sensor.ps5_discovered_users').split(', ') %}
+          {{ users | select('string') | list | length }}
+        icon: 'mdi:account-multiple'
+        
+      # Create a sensor for each user's stats (this will work for any number of users)
+      # The key insight: we use the /api/users/<user>/stats endpoint which returns all stats
+      - name: "PS5 All Users Stats"
+        state: >
+          {% set users = states('sensor.ps5_discovered_users').split(', ') %}
+          {% set stats = [] %}
+          {% for user in users %}
+            {% if user != 'unknown' and user != '' %}
+              {% set user_stats = state_attr('rest.ps5_all_users_stats', 'response') %}
+              {% if user_stats and user_stats[user] %}
+                {% set stats = stats + [user + ': ' + (user_stats[user].daily | int) + 'min today'] %}
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+          {{ stats | join(', ') if stats else 'No users found' }}
+        icon: 'mdi:playstation'
+
+# REST sensor to get all user stats at once
+rest:
+  - resource: "http://localhost:8080/api/users"
+    scan_interval: 60
+    sensor:
+      - name: "PS5 All Users Stats"
+        value_template: '{{ value_json }}'
+
+# REST commands for managing limits (works with any discovered user)
+rest_command:
+  set_user_limit:
+    url: "http://localhost:8080/api/limits/{{ user }}"
+    method: "POST"
+    headers:
+      Content-Type: "application/json"
+    payload: '{"daily_minutes": {{ minutes }}, "enabled": true}'
+    
+  get_user_stats:
+    url: "http://localhost:8080/api/users/{{ user }}/stats"
+    method: "GET"
+
+# Input text for user management
+input_text:
+  ps5_manage_user:
+    name: "PS5 User to Manage"
+    initial: ""
+    max: 50
+    
+  ps5_user_limit:
+    name: "PS5 User Daily Limit (minutes)"
+    initial: "120"
+    max: 10
+
+# Automation to set limits via UI
+automation:
+  - alias: "PS5 Set User Limit"
+    trigger:
+      - platform: state
+        entity_id: input_text.ps5_user_limit
+    condition:
+      - condition: state
+        entity_id: input_text.ps5_manage_user
+        state: ""
+        negate: true
+    action:
+      - service: rest_command.set_user_limit
+        data:
+          user: "{{ states('input_text.ps5_manage_user') }}"
+          minutes: "{{ states('input_text.ps5_user_limit') | int }}"
+      - service: notify.persistent_notification
+        data:
+          message: "Set PS5 time limit for {{ states('input_text.ps5_manage_user') }} to {{ states('input_text.ps5_user_limit') }} minutes"
+
+# Script to easily manage users
+script:
+  ps5_set_limit:
+    alias: "Set PS5 Time Limit"
+    fields:
+      user:
+        description: "Username to set limit for"
+        example: "john"
+      minutes:
+        description: "Daily limit in minutes"
+        example: 120
+    sequence:
+      - service: rest_command.set_user_limit
+        data:
+          user: "{{ user }}"
+          minutes: "{{ minutes }}"
+      - service: notify.persistent_notification
+        data:
+          message: "Set PS5 time limit for {{ user }} to {{ minutes }} minutes"
+

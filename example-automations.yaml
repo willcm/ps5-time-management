@@ -1,0 +1,182 @@
+# Example Home Assistant Automations for PS5 Time Management
+# Add these to your automations.yaml or create them in the UI
+# 
+# NOTE: These automations use hardcoded "kid1" and "kid2" - you'll need to:
+# 1. Replace with your actual kid usernames from ps5-mqtt
+# 2. Copy these automations for each additional kid
+# 3. Update entity names to match your sensor names
+
+automation:
+  # Warn when 10 minutes remaining
+  - alias: "PS5 Time Warning - 10 Minutes Remaining"
+    description: "Send warning when user has 10 minutes of playtime remaining"
+    trigger:
+      platform: numeric_state
+      entity_id: sensor.ps5_kid1_time_remaining
+      below: 10
+      above: 9
+    condition:
+      - condition: state
+        entity_id: media_player.ps5  # Adjust based on your PS5 entity
+        state: 'playing'
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          message: "⏰ 10 minutes of PS5 time remaining!"
+          data:
+            actions:
+              - action: "EXTEND_TIME"
+                title: "Request Extension"
+      - service: notify.mobile_app_kids_phone
+        data:
+          message: "You have 10 minutes of PS5 time left today"
+      - service: system_log.write
+        data:
+          message: "PS5 Time Warning: 10 minutes remaining for kid1"
+
+  # Warn when 5 minutes remaining
+  - alias: "PS5 Time Warning - 5 Minutes Remaining"
+    trigger:
+      platform: numeric_state
+      entity_id: sensor.ps5_kid1_time_remaining
+      below: 5
+      above: 4
+    condition:
+      - condition: state
+        entity_id: media_player.ps5
+        state: 'playing'
+    action:
+      - service: notify.mobile_app_kids_phone
+        data:
+          message: "⚠️ 5 minutes remaining! The PS5 will turn off automatically."
+          data:
+            priority: "high"
+
+  # Auto-shutdown when limit reached
+  - alias: "PS5 Auto Shutdown When Limit Reached"
+    description: "Automatically turn off PS5 when time limit is reached"
+    trigger:
+      platform: numeric_state
+      entity_id: sensor.ps5_kid1_time_remaining
+      below: 0
+    condition:
+      - condition: state
+        entity_id: media_player.ps5
+        state: 'playing'
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          message: "🛑 PS5 time limit reached for kid1. System shutting down."
+      - service: notify.mobile_app_kids_phone
+        data:
+          message: "Time limit reached. Turning off PS5."
+      - service: mqtt.publish
+        data:
+          topic: "ps5/[YOUR_PS5_ID]/command"
+          payload: '{"action": "turn_off"}'
+      - service: system_log.write
+        data:
+          message: "PS5 Auto-shutdown activated for kid1 - time limit reached"
+
+  # Daily reset of playtime
+  - alias: "PS5 Daily Time Reset"
+    description: "Reset daily playtime counter at midnight"
+    trigger:
+      platform: time
+      at: '00:00:00'
+    action:
+      - service: system_log.write
+        data:
+          message: "PS5 daily time counter reset for new day"
+      - service: notify.mobile_app_your_phone
+        data:
+          message: "📊 New day - PS5 time limits reset"
+
+  # Generate weekly report every Sunday
+  - alias: "PS5 Weekly Report"
+    description: "Send weekly usage report every Sunday at 6 PM"
+    trigger:
+      platform: time
+      at: '18:00:00'
+      day_of_week: 'sun'
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          message: "📈 Weekly PS5 Report Available",
+          data:
+            url: "http://your-ha-url:8123/lovelace/ps5"
+      - service: system_log.write
+        data:
+          message: "Weekly PS5 report generated"
+
+  # Sound alert 1 minute before shutdown
+  - alias: "PS5 Final Warning Alert"
+    trigger:
+      platform: numeric_state
+      entity_id: sensor.ps5_kid1_time_remaining
+      below: 1
+      above: 0
+    condition:
+      - condition: state
+        entity_id: media_player.ps5
+        state: 'playing'
+    action:
+      # Play a notification sound on the PS5 if possible
+      - service: notify.mobile_app_kids_phone
+        data:
+          message: "🔔 FINAL WARNING: 1 minute until shutdown!"
+
+  # Remind about time limit at the start of play
+  - alias: "PS5 Play Started Reminder"
+    trigger:
+      platform: state
+      entity_id: media_player.ps5
+      to: 'playing'
+    condition:
+      - condition: state
+        entity_id: sensor.ps5_kid1_time_remaining
+        above: 0
+        below: 60
+    action:
+      - service: notify.mobile_app_kids_phone
+        data:
+          message: "You have {{ states('sensor.ps5_kid1_time_remaining') }} minutes of playtime remaining today"
+
+  # Block PS5 access during homework hours
+  - alias: "PS5 Homework Hours Block"
+    description: "Automatically turn off PS5 during homework time"
+    trigger:
+      platform: time
+      at: '15:00:00'  # 3 PM
+    condition:
+      - condition: state
+        entity_id: media_player.ps5
+        state: 'playing'
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          message: "Homework time - PS5 being shut down"
+      - service: mqtt.publish
+        data:
+          topic: "ps5/[YOUR_PS5_ID]/command"
+          payload: '{"action": "turn_off"}'
+
+  # Prevent overnight gaming
+  - alias: "PS5 Overnight Block"
+    description: "Ensure PS5 is off during bedtime hours"
+    trigger:
+      platform: time
+      at: '21:00:00'  # 9 PM
+    condition:
+      - condition: state
+        entity_id: media_player.ps5
+        state: 'playing'
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          message: "Bedtime - turning off PS5"
+      - service: mqtt.publish
+        data:
+          topic: "ps5/[YOUR_PS5_ID]/command"
+          payload: '{"action": "turn_off"}'
+

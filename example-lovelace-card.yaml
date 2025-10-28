@@ -1,0 +1,193 @@
+# Example Home Assistant Lovelace Card for PS5 Time Management Dashboard
+# Add this as a new card in your Lovelace UI
+#
+# NOTE: This card uses hardcoded "kid1" and "kid2" - you'll need to:
+# 1. Replace with your actual kid usernames from ps5-mqtt
+# 2. Copy the card sections for each additional kid
+# 3. Update entity names to match your sensor names
+
+type: vertical-stack
+title: "PS5 Time Management"
+cards:
+  # Daily Summary
+  - type: custom:mushroom-title-card
+    title: "Daily Playtime"
+    subtitle: Today
+    card_mod: style: |
+      .card-content { padding: 12px 16px; }
+  
+  - type: entities
+    entities:
+      - entity: sensor.ps5_kid1_daily_playtime
+        name: "Kid 1"
+        icon: mdi:account
+      - entity: sensor.ps5_kid1_time_remaining
+        name: "Time Remaining"
+        icon: mdi:timer-outline
+      - entity: sensor.ps5_kid2_daily_playtime
+        name: "Kid 2"
+        icon: mdi:account
+      - entity: sensor.ps5_kid2_time_remaining
+        name: "Time Remaining"
+        icon: mdi:timer-outline
+
+  # Time Remaining Gauge
+  - type: gauge
+    entity: sensor.ps5_kid1_time_remaining
+    name: "Kid 1 - Time Remaining"
+    unit: min
+    min: 0
+    max: 120
+    severity:
+      green: 60
+      yellow: 30
+      red: 10
+
+  - type: gauge
+    entity: sensor.ps5_kid2_time_remaining
+    name: "Kid 2 - Time Remaining"
+    unit: min
+    min: 0
+    max: 120
+    severity:
+      green: 60
+      yellow: 30
+      red: 10
+
+  # Weekly Summary
+  - type: custom:mushroom-title-card
+    title: "Weekly Summary"
+    
+  - type: statistics-graph
+    name: "Weekly Playtime Trend"
+    entities:
+      - sensor.ps5_kid1_daily_playtime
+      - sensor.ps5_kid2_daily_playtime
+    period: day
+    days: 7
+    stat_types:
+      - state
+
+  # Usage by Game
+  - type: markdown
+    title: "Top Games This Week"
+    content: |
+      ## Most Played Games
+      
+      Kid 1's favorite games this week:
+      - Check the top games report in the PS5 Time Management panel
+      
+      [View Full Report](/hassio/ingress/ps5_time_management)
+
+  # Manual Controls
+  - type: custom:mushroom-title-card
+    title: "Controls"
+    
+  - type: entities
+    entities:
+      - type: custom:button-card
+        entity: media_player.ps5
+        name: "PS5 Status"
+        tap_action:
+          action: more-info
+      - type: button
+        name: "Reset Daily Counter"
+        tap_action:
+          action: call-service
+          service: homeassistant.reload_config
+        icon: mdi:refresh
+
+  # Notifications
+  - type: markdown
+    title: "Notifications"
+    content: |
+      ### Active Alerts
+      
+      {% if states('sensor.ps5_kid1_time_remaining') | int < 10 %}
+      ⚠️ **Alert:** Kid 1 has less than 10 minutes remaining!
+      {% endif %}
+      
+      {% if states('sensor.ps5_kid2_time_remaining') | int < 10 %}
+      ⚠️ **Alert:** Kid 2 has less than 10 minutes remaining!
+      {% endif %}
+
+# Alternative: Modern Card
+type: grid
+columns: 2
+square: false
+cards:
+  # Player 1 Card
+  - type: vertical-stack
+    cards:
+      - type: custom:mushroom-title-card
+        title: Kid 1
+        subtitle: PS5 Gaming
+        
+      - type: gauge
+        entity: sensor.ps5_kid1_time_remaining
+        name: Time Remaining
+        unit: min
+        min: 0
+        max: 120
+        severity:
+          green: 60
+          yellow: 30
+          red: 10
+          
+      - type: entities
+        entities:
+          - entity: sensor.ps5_kid1_daily_playtime
+            name: Today
+            icon: mdi:clock-outline
+          - entity: sensor.ps5_kid1_weekly_playtime
+            name: This Week
+            icon: mdi:calendar-week
+          - entity: sensor.ps5_kid1_monthly_playtime
+            name: This Month
+            icon: mdi:calendar-month
+
+  # Player 2 Card  
+  - type: vertical-stack
+    cards:
+      - type: custom:mushroom-title-card
+        title: Kid 2
+        subtitle: PS5 Gaming
+        
+      - type: gauge
+        entity: sensor.ps5_kid2_time_remaining
+        name: Time Remaining
+        unit: min
+        min: 0
+        max: 120
+        severity:
+          green: 60
+          yellow: 30
+          red: 10
+          
+      - type: entities
+        entities:
+          - entity: sensor.ps5_kid2_daily_playtime
+            name: Today
+            icon: mdi:clock-outline
+          - entity: sensor.ps5_kid2_weekly_playtime
+            name: This Week
+            icon: mdi:calendar-week
+          - entity: sensor.ps5_kid2_monthly_playtime
+            name: This Month
+            icon: mdi:calendar-month
+
+  # Graphs Row
+  - type: statistics-graph
+    entities:
+      - sensor.ps5_kid1_daily_playtime
+    name: Kid 1 - Daily Playtime
+    hours_to_show: 168
+    days_to_show: 7
+    
+  - type: statistics-graph
+    entities:
+      - sensor.ps5_kid2_daily_playtime
+    name: Kid 2 - Daily Playtime
+    hours_to_show: 168
+    days_to_show: 7
+
