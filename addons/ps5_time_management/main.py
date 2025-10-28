@@ -560,8 +560,10 @@ def update_all_sensor_states():
 def update_user_sensor_states(user):
     """Update MQTT sensor states for a specific user"""
     try:
-        # Get user stats
-        stats = time_manager.get_user_stats(user)
+        # Get user stats using the correct methods
+        daily_time = time_manager.get_user_time_today(user)
+        weekly_time = time_manager.get_user_weekly_time(user)
+        monthly_time = time_manager.get_user_monthly_time(user)
         
         # Get current session info
         current_session = None
@@ -572,7 +574,6 @@ def update_user_sensor_states(user):
         
         # Calculate time remaining (assuming 120 min daily limit)
         daily_limit = 120  # This could be made configurable
-        daily_time = stats.get('daily', 0)
         time_remaining = max(0, daily_limit - daily_time)
         
         # Publish sensor states
@@ -582,10 +583,10 @@ def update_user_sensor_states(user):
         mqtt_client.publish(f"{base_topic}/daily", str(daily_time), retain=True)
         
         # Weekly playtime
-        mqtt_client.publish(f"{base_topic}/weekly", str(stats.get('weekly', 0)), retain=True)
+        mqtt_client.publish(f"{base_topic}/weekly", str(weekly_time), retain=True)
         
         # Monthly playtime
-        mqtt_client.publish(f"{base_topic}/monthly", str(stats.get('monthly', 0)), retain=True)
+        mqtt_client.publish(f"{base_topic}/monthly", str(monthly_time), retain=True)
         
         # Time remaining
         mqtt_client.publish(f"{base_topic}/remaining", str(time_remaining), retain=True)
@@ -598,7 +599,7 @@ def update_user_sensor_states(user):
         session_active = 'ON' if current_session else 'OFF'
         mqtt_client.publish(f"{base_topic}/active", session_active, retain=True)
         
-        logger.debug(f"Updated sensor states for {user}")
+        logger.debug(f"Updated sensor states for {user}: daily={daily_time}, weekly={weekly_time}, monthly={monthly_time}, remaining={time_remaining}")
         
     except Exception as e:
         logger.error(f"Failed to update sensor states for {user}: {e}")
