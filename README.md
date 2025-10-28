@@ -1,4 +1,6 @@
-# PS5 Time Management - Home Assistant Add-on
+# PS5 Time Management
+
+[![Open your Home Assistant instance and show the add-on repository.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fwillcm%2Fps5-time-management)
 
 A comprehensive Home Assistant add-on for tracking and managing PlayStation 5 playtime with advanced parental controls and time limits.
 
@@ -36,7 +38,11 @@ A comprehensive Home Assistant add-on for tracking and managing PlayStation 5 pl
 
 ## 📦 Installation
 
-### Via Home Assistant Add-on Store
+### One-Click Install
+
+Click the blue "ADD ADD-ON REPOSITORY TO MY HOME ASSISTANT" button above, or:
+
+### Manual Installation
 
 1. In Home Assistant, go to **Settings** → **Add-ons** → **Add-on Store**
 2. Click the three dots menu (⋮) → **Repositories**
