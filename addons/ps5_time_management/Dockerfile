@@ -46,5 +46,5 @@ RUN chmod a+x run.sh
 VOLUME [ "/data" ]
 
 # Run the application via startup script
-CMD [ "/app/run.sh" ]
+ENTRYPOINT ["/app/run.sh"]
 
