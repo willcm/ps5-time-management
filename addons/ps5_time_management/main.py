@@ -256,34 +256,66 @@ class PS5TimeManager:
         return int(total_time)
     
     def get_user_weekly_time(self, user):
-        """Get total time played this week by user"""
+        """Get total time played this week by user (including active sessions)"""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        week_start = datetime.now().date() - timedelta(days=datetime.now().weekday())
         
+        # Calculate week start (Monday)
+        today = datetime.now().date()
+        week_start = today - timedelta(days=today.weekday())
+        
+        # Get completed sessions from database for this week
         c.execute('''SELECT SUM(total_minutes) FROM user_stats 
                      WHERE user=? AND date >= ?''',
                  (user, week_start))
         
         result = c.fetchone()
+        completed_time = result[0] if result else 0
         conn.close()
         
-        return result[0] if result else 0
+        # Add time from active sessions (if they started this week)
+        active_time = 0
+        for session_id, session in self.active_sessions.items():
+            if session['user'] == user:
+                session_date = session['start_time'].date()
+                if session_date >= week_start:  # Only count sessions from this week
+                    elapsed = (datetime.now() - session['start_time']).total_seconds()
+                    active_time += elapsed / 60  # Convert to minutes
+        
+        total_time = completed_time + active_time
+        logger.debug(f"User {user} weekly time: {completed_time} completed + {active_time:.1f} active = {total_time:.1f} total")
+        return int(total_time)
     
     def get_user_monthly_time(self, user):
-        """Get total time played this month by user"""
+        """Get total time played this month by user (including active sessions)"""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        month_start = datetime.now().replace(day=1).date()
         
+        # Calculate month start
+        today = datetime.now().date()
+        month_start = today.replace(day=1)
+        
+        # Get completed sessions from database for this month
         c.execute('''SELECT SUM(total_minutes) FROM user_stats 
                      WHERE user=? AND date >= ?''',
                  (user, month_start))
         
         result = c.fetchone()
+        completed_time = result[0] if result else 0
         conn.close()
         
-        return result[0] if result else 0
+        # Add time from active sessions (if they started this month)
+        active_time = 0
+        for session_id, session in self.active_sessions.items():
+            if session['user'] == user:
+                session_date = session['start_time'].date()
+                if session_date >= month_start:  # Only count sessions from this month
+                    elapsed = (datetime.now() - session['start_time']).total_seconds()
+                    active_time += elapsed / 60  # Convert to minutes
+        
+        total_time = completed_time + active_time
+        logger.debug(f"User {user} monthly time: {completed_time} completed + {active_time:.1f} active = {total_time:.1f} total")
+        return int(total_time)
     
     def get_top_games(self, user, days=30, limit=10):
         """Get top games played by user in the last N days"""
