@@ -11,7 +11,7 @@
   "ingress": true,
   "ingress_port": 8080,
   "panel_icon": "mdi:playstation",
-  "stage": "testing",
+  "stage": "stable",
   "homeassistant": "2023.1.0",
   "services": [
     "mqtt:need"
