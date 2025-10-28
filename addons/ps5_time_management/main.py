@@ -379,6 +379,8 @@ def discover_users_from_ps5_mqtt():
 
 def on_connect(client, userdata, flags, reason_code, properties):
     """Callback when connected to MQTT broker"""
+    logger.info(f"MQTT on_connect callback: reason_code={reason_code}, flags={flags}")
+    
     if reason_code == 0:
         logger.info("Connected to MQTT broker successfully")
         
