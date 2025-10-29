@@ -66,6 +66,32 @@ class PS5TimeManager:
         self.active_sessions = {}
         self.user_limits = {}
         self.timer_thread = None
+    
+    def add_user_if_new(self, user: str) -> None:
+        """Persist a discovered user if not already stored."""
+        if not user:
+            return
+        try:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            c.execute('INSERT OR IGNORE INTO users (user) VALUES (?)', (user,))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.warning(f"Failed to persist user '{user}': {e}")
+    
+    def load_users(self):
+        """Load all persisted users from the database."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            c.execute('SELECT user FROM users')
+            rows = c.fetchall()
+            conn.close()
+            return [row[0] for row in rows]
+        except Exception as e:
+            logger.warning(f"Failed to load users from database: {e}")
+            return []
         
     def init_database(self):
         """Initialize SQLite database with required tables"""
@@ -161,6 +187,10 @@ class PS5TimeManager:
                       message TEXT,
                       timestamp TIMESTAMP,
                       read BOOLEAN DEFAULT 0)''')
+        
+        # Users table - persist discovered users so we don't depend on live discovery
+        c.execute('''CREATE TABLE IF NOT EXISTS users
+                     (user TEXT PRIMARY KEY)''')
         
         conn.commit()
         conn.close()
@@ -514,6 +544,8 @@ def handle_device_update(ps5_id, data):
         for player in players:
             if player and player not in discovered_users:
                 discovered_users.add(player)
+                # Persist the discovered user so it survives restarts/updates
+                time_manager.add_user_if_new(player)
                 logger.info(f"Discovered new user: {player}")
                 # Publish sensors for new user
                 publish_user_sensors(player)
@@ -1347,6 +1379,20 @@ def main():
     # Initialize time manager
     db_path = config.get('database_path', '/data/ps5_time_management.db')
     time_manager = PS5TimeManager(db_path)
+    
+    # Load any previously persisted users so sensors exist without waiting for MQTT
+    try:
+        persisted_users = time_manager.load_users()
+        if persisted_users:
+            for user in persisted_users:
+                if user not in discovered_users:
+                    discovered_users.add(user)
+                    publish_user_sensors(user)
+            logger.info(f"Loaded persisted users from DB: {persisted_users}")
+        else:
+            logger.info("No persisted users found in DB yet")
+    except Exception as e:
+        logger.warning(f"Failed to initialize users from DB: {e}")
     
     # Get MQTT configuration (automatic or manual)
     mqtt_config = get_mqtt_config()
