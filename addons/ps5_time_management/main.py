@@ -1128,6 +1128,7 @@ def get_report(user):
 @app.route('/')
 def index():
     """Serve a simple index page with links"""
+    logger.info("Index route accessed")
     return '''
     <html>
     <head><title>PS5 Time Management</title></head>
@@ -1136,13 +1137,21 @@ def index():
         <p><a href="/user-management">User Management</a></p>
         <p><a href="/api/users">API: List Users</a></p>
         <p><a href="/api/debug/Thomas">API: Debug User</a></p>
+        <p><a href="/test">Test Route</a></p>
     </body>
     </html>
     '''
 
+@app.route('/test')
+def test():
+    """Test route to verify routing works"""
+    logger.info("Test route accessed")
+    return "Test route works! Flask routing is functioning."
+
 @app.route('/user-management')
 def user_management():
     """Serve the user management web interface"""
+    logger.info("User management route accessed")
     try:
         return render_template('user_management.html')
     except Exception as e:
