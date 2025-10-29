@@ -12,7 +12,7 @@ import glob
 from datetime import datetime, timedelta
 from threading import Thread
 import paho.mqtt.client as mqtt
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template
 from flask_cors import CORS
 import logging
 
@@ -44,7 +44,7 @@ def setup_logging(log_level='INFO'):
 logger = setup_logging()
 
 # Initialize Flask app
-app = Flask(__name__)
+app = Flask(__name__, template_folder='templates')
 CORS(app)
 
 # Configuration
@@ -1125,14 +1125,29 @@ def get_report(user):
         'total_minutes': sum(s['minutes'] for s in daily_stats)
     })
 
+@app.route('/')
+def index():
+    """Serve a simple index page with links"""
+    return '''
+    <html>
+    <head><title>PS5 Time Management</title></head>
+    <body>
+        <h1>🎮 PS5 Time Management</h1>
+        <p><a href="/user-management">User Management</a></p>
+        <p><a href="/api/users">API: List Users</a></p>
+        <p><a href="/api/debug/Thomas">API: Debug User</a></p>
+    </body>
+    </html>
+    '''
+
 @app.route('/user-management')
 def user_management():
     """Serve the user management web interface"""
     try:
-        with open('/app/templates/user_management.html', 'r') as f:
-            return f.read()
-    except FileNotFoundError:
-        return "User management page not found", 404
+        return render_template('user_management.html')
+    except Exception as e:
+        logger.error(f"Error serving user management page: {e}")
+        return f"Error loading user management page: {e}", 500
 
 def load_config():
     """Load configuration from options.json"""
