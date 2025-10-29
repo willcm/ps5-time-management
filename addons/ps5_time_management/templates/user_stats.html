@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stats - {{ user }} - PS5 Time Management</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            padding: 30px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        h1 {
+            color: #333;
+            margin: 0;
+            font-size: 2em;
+        }
+        .back-btn {
+            display: inline-block;
+            padding: 10px 20px;
+            background: #6c757d;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 0.9em;
+            transition: background 0.2s;
+        }
+        .back-btn:hover {
+            background: #5a6268;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 10px;
+            padding: 25px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+        .stat-card.weekly {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            box-shadow: 0 4px 15px rgba(240, 147, 251, 0.3);
+        }
+        .stat-card.monthly {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);
+        }
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .stat-value {
+            font-size: 2.5em;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .stat-unit {
+            font-size: 0.6em;
+            opacity: 0.8;
+        }
+        .section-title {
+            font-size: 1.5em;
+            color: #333;
+            margin: 40px 0 20px 0;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        .games-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+        .game-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+        }
+        .game-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.15);
+        }
+        .game-image {
+            width: 100%;
+            height: 240px;
+            object-fit: cover;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 2em;
+        }
+        .game-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .game-info {
+            padding: 15px;
+        }
+        .game-name {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 8px;
+            font-size: 0.95em;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .game-time {
+            color: #666;
+            font-size: 0.85em;
+        }
+        .active-sessions {
+            background: #e8f5e9;
+            border-left: 4px solid #4caf50;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 30px;
+        }
+        .active-sessions h3 {
+            margin: 0 0 10px 0;
+            color: #2e7d32;
+        }
+        .session-item {
+            padding: 8px 0;
+            border-bottom: 1px solid #c8e6c9;
+        }
+        .session-item:last-child {
+            border-bottom: none;
+        }
+        .games-breakdown {
+            margin-top: 40px;
+        }
+        .game-breakdown-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .game-breakdown-name {
+            font-weight: bold;
+            color: #333;
+        }
+        .game-breakdown-times {
+            display: flex;
+            gap: 20px;
+            color: #666;
+            font-size: 0.9em;
+        }
+        @media (max-width: 768px) {
+            .games-grid {
+                grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+                gap: 15px;
+            }
+            .game-image {
+                height: 200px;
+            }
+            .stat-value {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 Stats for {{ user }}</h1>
+            <a href="../user-management" class="back-btn">← Back to User Management</a>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Daily Playtime</div>
+                <div class="stat-value">{{ daily }}<span class="stat-unit">min</span></div>
+            </div>
+            <div class="stat-card weekly">
+                <div class="stat-label">Weekly Playtime</div>
+                <div class="stat-value">{{ weekly }}<span class="stat-unit">min</span></div>
+            </div>
+            <div class="stat-card monthly">
+                <div class="stat-label">Monthly Playtime</div>
+                <div class="stat-value">{{ monthly }}<span class="stat-unit">min</span></div>
+            </div>
+        </div>
+
+        {% if active_sessions %}
+        <div class="active-sessions">
+            <h3>🟢 Active Sessions</h3>
+            {% for session in active_sessions %}
+            <div class="session-item">
+                <strong>{{ session.game }}</strong> — Active for {{ session.elapsed_minutes }} minutes
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if top_games %}
+        <h2 class="section-title">🏆 Top Played Games (Last 30 Days)</h2>
+        <div class="games-grid">
+            {% for game in top_games %}
+            <div class="game-card">
+                <div class="game-image">
+                    {% if game.image %}
+                    <img src="{{ game.image }}" alt="{{ game.game }}" onerror="this.parentElement.innerHTML='🎮'">
+                    {% else %}
+                    🎮
+                    {% endif %}
+                </div>
+                <div class="game-info">
+                    <div class="game-name" title="{{ game.game }}">{{ game.game }}</div>
+                    <div class="game-time">{{ game.minutes }} minutes</div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if games %}
+        <h2 class="section-title">📈 All Games Breakdown</h2>
+        <div class="games-breakdown">
+            {% for game_name, stats in games.items() %}
+            <div class="game-breakdown-item">
+                <div class="game-breakdown-name">{{ game_name }}</div>
+                <div class="game-breakdown-times">
+                    <span>Daily: {{ stats.daily }}m</span>
+                    <span>Weekly: {{ stats.weekly }}m</span>
+                    <span>Monthly: {{ stats.monthly }}m</span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if not top_games and not games %}
+        <div style="text-align: center; padding: 40px; color: #666;">
+            <p>No game statistics available yet. Start playing to see your stats!</p>
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>
+

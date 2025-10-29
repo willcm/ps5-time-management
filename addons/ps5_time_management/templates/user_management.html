@@ -206,7 +206,7 @@
                         <div class="user-name">👤 ${user}</div>
                         <div class="actions">
                             <button class="btn btn-primary" onclick="refreshUser('${user}')">🔄 Refresh</button>
-                            <button class="btn btn-warning" onclick="viewStats('${user}')">📊 View Stats</button>
+                            <a href="./stats/${user}" class="btn btn-warning" style="text-decoration: none; display: inline-block;">📊 View Stats</a>
                             <button class="btn btn-danger" onclick="clearUserStats('${user}')">🗑️ Clear Stats</button>
                         </div>
                     </div>
@@ -285,48 +285,6 @@
                 }
             } catch (err) {
                 showError(`Error clearing ${user}: ${err.message}`);
-            }
-        }
-        
-        async function viewStats(user) {
-            try {
-                const response = await fetch(`./api/users/${user}/stats`);
-                const data = await response.json();
-                
-                if (response.ok) {
-                    // Format top games list
-                    let topGamesText = 'None';
-                    if (data.top_games && Array.isArray(data.top_games) && data.top_games.length > 0) {
-                        topGamesText = data.top_games.slice(0, 5).map(g => `${g.game} (${g.minutes}m)`).join(', ');
-                    }
-                    
-                    // Format active sessions
-                    let activeSessionsText = 'None';
-                    if (data.active_sessions && Array.isArray(data.active_sessions) && data.active_sessions.length > 0) {
-                        activeSessionsText = data.active_sessions.map(s => 
-                            `${s.game} (${s.elapsed_minutes}m active)`
-                        ).join(', ');
-                    }
-                    
-                    const statsText = `
-User: ${user}
-
-Time Statistics:
-• Daily: ${data.daily || 0} minutes
-• Weekly: ${data.weekly || 0} minutes  
-• Monthly: ${data.monthly || 0} minutes
-
-Active Sessions: ${activeSessionsText}
-
-Top Games (last 30 days):
-${topGamesText}
-                    `;
-                    alert(statsText);
-                } else {
-                    showError(`Error loading stats for ${user}: ${data.message || data.error || 'Unknown error'}`);
-                }
-            } catch (err) {
-                showError(`Error loading stats for ${user}: ${err.message}`);
             }
         }
         

@@ -401,7 +401,7 @@ class PS5TimeManager:
         return int(round(total_time))
     
     def get_top_games(self, user, days=30, limit=10):
-        """Get top games played by user in the last N days"""
+        """Get top games played by user in the last N days, with images when available"""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         start_date = (datetime.now() - timedelta(days=days)).date()
@@ -415,9 +415,35 @@ class PS5TimeManager:
                  (user, start_date, limit))
         
         results = c.fetchall()
-        conn.close()
         
-        return [{'game': row[0], 'minutes': row[1]} for row in results]
+        # Try to get game images from recent sessions or active sessions
+        games_with_images = []
+        for row in results:
+            game_name = row[0]
+            minutes = row[1]
+            game_image = None
+            
+            # Check active sessions first (most likely to have current image)
+            for session_id, session in self.active_sessions.items():
+                if session['user'] == user and session['game'] == game_name:
+                    # Try to get image from latest device status
+                    if latest_device_status and latest_device_status.get('title_name') == game_name:
+                        game_image = latest_device_status.get('title_image')
+                        break
+            
+            # If not found, try recent sessions (we'd need to store image in sessions)
+            # For now, check if it matches current device status
+            if not game_image and latest_device_status and latest_device_status.get('title_name') == game_name:
+                game_image = latest_device_status.get('title_image')
+            
+            games_with_images.append({
+                'game': game_name,
+                'minutes': minutes,
+                'image': game_image
+            })
+        
+        conn.close()
+        return games_with_images
     
     def get_game_time_today(self, user, game):
         """Get time played for a specific game today (including active sessions)"""
@@ -1587,6 +1613,41 @@ def user_management():
     except Exception as e:
         logger.error(f"Error serving user management page: {e}")
         return f"Error loading user management page: {e}", 500
+
+@app.route('/stats/<user>')
+def user_stats_page(user):
+    """Serve the detailed stats page for a user"""
+    logger.info(f"Stats page accessed for user: {user}")
+    if user not in discovered_users:
+        return f"User '{user}' not found", 404
+    
+    try:
+        # Get all stats data
+        stats_data = {
+            'user': user,
+            'daily': time_manager.get_user_time_today(user),
+            'weekly': time_manager.get_user_weekly_time(user),
+            'monthly': time_manager.get_user_monthly_time(user),
+            'top_games': time_manager.get_top_games(user, 30, 20),  # Top 20 games
+            'games': time_manager.get_all_games_stats(user)
+        }
+        
+        # Get active sessions info
+        active_sessions_info = []
+        for session_id, session in time_manager.active_sessions.items():
+            if session['user'] == user:
+                elapsed = (datetime.now() - session['start_time']).total_seconds()
+                active_sessions_info.append({
+                    'game': session['game'],
+                    'elapsed_minutes': int(elapsed / 60),
+                    'start_time': session['start_time'].isoformat()
+                })
+        stats_data['active_sessions'] = active_sessions_info
+        
+        return render_template('user_stats.html', **stats_data)
+    except Exception as e:
+        logger.error(f"Error serving stats page for {user}: {e}")
+        return f"Error loading stats page: {e}", 500
 
 def load_config():
     """Load configuration from options.json"""
