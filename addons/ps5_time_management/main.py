@@ -419,6 +419,118 @@ class PS5TimeManager:
         
         return [{'game': row[0], 'minutes': row[1]} for row in results]
     
+    def get_game_time_today(self, user, game):
+        """Get time played for a specific game today (including active sessions)"""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        today = datetime.now().date()
+        
+        # Get completed sessions from database
+        c.execute('''SELECT SUM(minutes_played) FROM game_stats 
+                     WHERE user=? AND game=? AND date=?''',
+                 (user, game, today))
+        
+        result = c.fetchone()
+        completed_time = result[0] if result and result[0] is not None else 0
+        conn.close()
+        
+        # Add time from active sessions for this game
+        active_time = 0
+        for session_id, session in self.active_sessions.items():
+            if session['user'] == user and session['game'] == game:
+                elapsed = (datetime.now() - session['start_time']).total_seconds()
+                active_time += elapsed / 60
+        
+        total_time = completed_time + active_time
+        return int(round(total_time))
+    
+    def get_game_time_weekly(self, user, game):
+        """Get time played for a specific game this week (including active sessions)"""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        
+        # Calculate week start (Monday)
+        today = datetime.now().date()
+        days_since_monday = today.weekday()
+        week_start = today - timedelta(days=days_since_monday)
+        
+        # Get completed sessions from database
+        c.execute('''SELECT SUM(minutes_played) FROM game_stats 
+                     WHERE user=? AND game=? AND date >= ?''',
+                 (user, game, week_start))
+        
+        result = c.fetchone()
+        completed_time = result[0] if result and result[0] is not None else 0
+        conn.close()
+        
+        # Add time from active sessions for this game
+        active_time = 0
+        for session_id, session in self.active_sessions.items():
+            if session['user'] == user and session['game'] == game:
+                elapsed = (datetime.now() - session['start_time']).total_seconds()
+                active_time += elapsed / 60
+        
+        total_time = completed_time + active_time
+        return int(round(total_time))
+    
+    def get_game_time_monthly(self, user, game):
+        """Get time played for a specific game this month (including active sessions)"""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        
+        # Calculate month start
+        today = datetime.now().date()
+        month_start = today.replace(day=1)
+        
+        # Get completed sessions from database
+        c.execute('''SELECT SUM(minutes_played) FROM game_stats 
+                     WHERE user=? AND game=? AND date >= ?''',
+                 (user, game, month_start))
+        
+        result = c.fetchone()
+        completed_time = result[0] if result and result[0] is not None else 0
+        conn.close()
+        
+        # Add time from active sessions for this game
+        active_time = 0
+        for session_id, session in self.active_sessions.items():
+            if session['user'] == user and session['game'] == game:
+                elapsed = (datetime.now() - session['start_time']).total_seconds()
+                active_time += elapsed / 60
+        
+        total_time = completed_time + active_time
+        return int(round(total_time))
+    
+    def get_all_games_stats(self, user):
+        """Get stats for all games played by user, organized by period"""
+        # Get all unique games for this user
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        
+        c.execute('''SELECT DISTINCT game FROM game_stats WHERE user=? 
+                     UNION 
+                     SELECT DISTINCT game FROM sessions WHERE user=?''',
+                 (user, user))
+        
+        games = [row[0] for row in c.fetchall()]
+        conn.close()
+        
+        # Add games from active sessions
+        for session_id, session in self.active_sessions.items():
+            if session['user'] == user and session['game'] not in games:
+                games.append(session['game'])
+        
+        # Get stats for each game
+        game_stats = {}
+        for game in games:
+            game_stats[game] = {
+                'daily': self.get_game_time_today(user, game),
+                'weekly': self.get_game_time_weekly(user, game),
+                'monthly': self.get_game_time_monthly(user, game)
+            }
+        
+        return game_stats
+    
     def get_user_limit(self, user):
         """Get configured time limit for user"""
         conn = sqlite3.connect(self.db_path)
@@ -973,7 +1085,8 @@ def get_user_stats_all(user):
         'weekly': weekly,
         'monthly': monthly,
         'active_sessions': active_session_info,
-        'top_games': time_manager.get_top_games(user, 30, 10)
+        'top_games': time_manager.get_top_games(user, 30, 10),
+        'games': time_manager.get_all_games_stats(user)  # Per-game breakdown by period
     })
 
 @app.route('/api/stats/daily/<user>', methods=['GET'])
@@ -993,6 +1106,32 @@ def get_monthly_stats(user):
     """Get monthly stats for user"""
     minutes = time_manager.get_user_monthly_time(user)
     return jsonify({'user': user, 'minutes': minutes})
+
+@app.route('/api/games/<user>', methods=['GET'])
+def get_user_games_stats(user):
+    """Get stats for all games played by a user (daily/weekly/monthly breakdown)"""
+    if user not in discovered_users:
+        return jsonify({'error': 'User not found'}), 404
+    
+    games_stats = time_manager.get_all_games_stats(user)
+    return jsonify({
+        'user': user,
+        'games': games_stats
+    })
+
+@app.route('/api/games/<user>/<game>', methods=['GET'])
+def get_game_stats(user, game):
+    """Get stats for a specific game for a user (daily/weekly/monthly)"""
+    if user not in discovered_users:
+        return jsonify({'error': 'User not found'}), 404
+    
+    return jsonify({
+        'user': user,
+        'game': game,
+        'daily': time_manager.get_game_time_today(user, game),
+        'weekly': time_manager.get_game_time_weekly(user, game),
+        'monthly': time_manager.get_game_time_monthly(user, game)
+    })
 
 @app.route('/api/games/top/<user>', methods=['GET'])
 def get_top_games(user):
