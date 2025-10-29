@@ -51,6 +51,18 @@ CORS(app)
 config = {}
 mqtt_client = None
 discovered_users = set()  # Set of discovered usernames
+# Latest device status snapshot from ps5-mqtt
+latest_device_status = {
+    'ps5_id': None,
+    'power': 'UNKNOWN',
+    'device_status': 'offline',
+    'activity': 'none',
+    'players': [],
+    'title_id': None,
+    'title_name': None,
+    'title_image': None,
+    'last_update': None,
+}
 published_sensors = set()  # Track which sensors we've published via MQTT Discovery
 current_session = {
     'user': None,
@@ -540,6 +552,21 @@ def handle_device_update(ps5_id, data):
     
     # Extract players from the message
     players = data.get('players', [])
+    # Update latest device status snapshot
+    try:
+        latest_device_status.update({
+            'ps5_id': ps5_id,
+            'power': data.get('power', latest_device_status.get('power')),
+            'device_status': data.get('device_status', latest_device_status.get('device_status')),
+            'activity': data.get('activity', latest_device_status.get('activity')),
+            'players': players or [],
+            'title_id': data.get('title_id'),
+            'title_name': data.get('title_name'),
+            'title_image': data.get('title_image'),
+            'last_update': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.warning(f"Failed updating latest device status: {e}")
     if players:
         for player in players:
             if player and player not in discovered_users:
@@ -830,6 +857,43 @@ def check_timers():
 def health_check():
     """Health check endpoint"""
     return jsonify({'status': 'ok'})
+
+@app.route('/api/status', methods=['GET'])
+def api_status():
+    """Return current console status including active session details if any."""
+    try:
+        # Determine active session details
+        active_sessions = []
+        for session_id, session in list(time_manager.active_sessions.items()):
+            started = session['start_time']
+            elapsed_seconds = int((datetime.now() - started).total_seconds())
+            active_sessions.append({
+                'user': session['user'],
+                'game': session['game'],
+                'ps5_id': session['ps5_id'],
+                'start_time': started.isoformat(),
+                'elapsed_seconds': elapsed_seconds,
+                'elapsed_minutes': elapsed_seconds // 60,
+            })
+
+        status = {
+            'power': latest_device_status.get('power'),
+            'device_status': latest_device_status.get('device_status'),
+            'activity': latest_device_status.get('activity'),
+            'players': latest_device_status.get('players') or [],
+            'title': {
+                'id': latest_device_status.get('title_id'),
+                'name': latest_device_status.get('title_name'),
+                'image': latest_device_status.get('title_image'),
+            },
+            'ps5_id': latest_device_status.get('ps5_id'),
+            'last_update': latest_device_status.get('last_update'),
+            'active_sessions': active_sessions,
+        }
+        return jsonify(status)
+    except Exception as e:
+        logger.error(f"/api/status error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/users', methods=['GET'])
 def get_discovered_users():
@@ -1205,12 +1269,35 @@ def index():
             .link:hover { background: #0056b3; }
             .api-link { background: #28a745; }
             .api-link:hover { background: #218838; }
+            .status-card { display: flex; gap: 16px; align-items: center; background: #ffffff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 6px rgba(0,0,0,0.08); margin: 16px 0 24px; }
+            .status-info { flex: 1; }
+            .status-title { font-size: 1.1em; margin: 0 0 8px 0; color: #111; }
+            .status-line { margin: 6px 0; color: #333; }
+            .badge { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 0.85em; color: #fff; }
+            .badge.awake { background: #28a745; }
+            .badge.standby { background: #6c757d; }
+            .badge.offline { background: #dc3545; }
+            .game-art { width: 92px; height: 92px; border-radius: 8px; object-fit: cover; background: #eee; }
+            .muted { color: #666; }
+            .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
         </style>
     </head>
     <body>
         <div class="container">
             <h1>🎮 PS5 Time Management</h1>
             <p>Welcome to the PS5 Time Management add-on!</p>
+
+            <h2>Console Status</h2>
+            <div class="status-card" id="status-card">
+                <img id="game-image" class="game-art" alt="Game art" src="" style="display:none;" />
+                <div class="status-info">
+                    <div class="status-title">Status: <span id="status-badge" class="badge standby">Loading…</span></div>
+                    <div class="status-line" id="players-line" style="display:none;"></div>
+                    <div class="status-line" id="game-line" style="display:none;"></div>
+                    <div class="status-line muted" id="session-line" style="display:none;"></div>
+                    <div class="status-line muted"><span class="mono" id="last-update">—</span></div>
+                </div>
+            </div>
             
             <h2>Web Interface</h2>
             <a href="./user-management" class="link">👥 User Management</a>
@@ -1221,6 +1308,58 @@ def index():
             <a href="./api/debug/Thomas" class="link api-link">🔍 Debug User (Thomas)</a>
             <a href="./api/stats/daily/Thomas" class="link api-link">📊 Daily Stats (Thomas)</a>
         </div>
+        <script>
+            function fmtMins(mins){ return mins + ' min' + (mins === 1 ? '' : 's'); }
+            function fetchStatus(){
+                fetch('./api/status').then(r=>r.json()).then(s=>{
+                    const badge = document.getElementById('status-badge');
+                    const playersLine = document.getElementById('players-line');
+                    const gameLine = document.getElementById('game-line');
+                    const sessionLine = document.getElementById('session-line');
+                    const gameImg = document.getElementById('game-image');
+                    const lastUpdate = document.getElementById('last-update');
+
+                    const power = (s.power||'UNKNOWN').toUpperCase();
+                    badge.textContent = power;
+                    badge.className = 'badge ' + (power === 'AWAKE' ? 'awake' : (power === 'STANDBY' ? 'standby' : 'offline'));
+                    lastUpdate.textContent = s.last_update ? 'Last update: ' + s.last_update : 'No updates yet';
+
+                    // Players and activity
+                    if (Array.isArray(s.players) && s.players.length){
+                        playersLine.style.display = '';
+                        playersLine.textContent = 'Player(s): ' + s.players.join(', ');
+                    } else {
+                        playersLine.style.display = 'none';
+                    }
+
+                    // Game title and image
+                    if (s.title && (s.title.name || s.title.image)){
+                        gameLine.style.display = '';
+                        gameLine.textContent = 'Game: ' + (s.title.name || 'Unknown');
+                        if (s.title.image){
+                            gameImg.src = s.title.image;
+                            gameImg.style.display = '';
+                        } else {
+                            gameImg.style.display = 'none';
+                        }
+                    } else {
+                        gameLine.style.display = 'none';
+                        gameImg.style.display = 'none';
+                    }
+
+                    // Active session timing (first one)
+                    if (Array.isArray(s.active_sessions) && s.active_sessions.length){
+                        const a = s.active_sessions[0];
+                        sessionLine.style.display = '';
+                        sessionLine.textContent = 'Started: ' + new Date(a.start_time).toLocaleString() + ' — Active ' + fmtMins(a.elapsed_minutes);
+                    } else {
+                        sessionLine.style.display = 'none';
+                    }
+                }).catch(()=>{});
+            }
+            fetchStatus();
+            setInterval(fetchStatus, 15000);
+        </script>
     </body>
     </html>
     '''
