@@ -136,11 +136,26 @@
         .refresh-btn:hover {
             background: #218838;
         }
+        .back-btn {
+            display: inline-block;
+            margin: 0 0 20px 0;
+            padding: 10px 20px;
+            background: #6c757d;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        .back-btn:hover {
+            background: #5a6268;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🎮 PS5 Time Management - User Management</h1>
+        
+        <a href="./" class="back-btn">← Back to Home</a>
         
         <button class="refresh-btn" onclick="loadUsers()">🔄 Refresh User List</button>
         
