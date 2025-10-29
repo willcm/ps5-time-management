@@ -163,7 +163,7 @@
             container.innerHTML = '';
             
             try {
-                const response = await fetch('/api/users');
+                const response = await fetch('./api/users');
                 const data = await response.json();
                 
                 if (data.users && data.users.length > 0) {
@@ -215,7 +215,7 @@
         
         async function refreshUser(user) {
             try {
-                const response = await fetch(`/api/refresh/${user}`, { method: 'POST' });
+                const response = await fetch(`./api/refresh/${user}`, { method: 'POST' });
                 const data = await response.json();
                 
                 if (response.ok) {
@@ -235,7 +235,7 @@
             }
             
             try {
-                const response = await fetch(`/api/cleanup/${user}`, { method: 'POST' });
+                const response = await fetch(`./api/cleanup/${user}`, { method: 'POST' });
                 const data = await response.json();
                 
                 if (response.ok) {
@@ -251,7 +251,7 @@
         
         async function viewStats(user) {
             try {
-                const response = await fetch(`/api/stats/daily/${user}`);
+                const response = await fetch(`./api/stats/daily/${user}`);
                 const data = await response.json();
                 
                 if (response.ok) {

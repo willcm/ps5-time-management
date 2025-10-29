@@ -1131,13 +1131,33 @@ def index():
     logger.info("Index route accessed")
     return '''
     <html>
-    <head><title>PS5 Time Management</title></head>
+    <head>
+        <title>PS5 Time Management</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+            .container { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            h1 { color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px; }
+            .link { display: block; margin: 15px 0; padding: 10px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; }
+            .link:hover { background: #0056b3; }
+            .api-link { background: #28a745; }
+            .api-link:hover { background: #218838; }
+        </style>
+    </head>
     <body>
-        <h1>🎮 PS5 Time Management</h1>
-        <p><a href="/user-management">User Management</a></p>
-        <p><a href="/api/users">API: List Users</a></p>
-        <p><a href="/api/debug/Thomas">API: Debug User</a></p>
-        <p><a href="/test">Test Route</a></p>
+        <div class="container">
+            <h1>🎮 PS5 Time Management</h1>
+            <p>Welcome to the PS5 Time Management add-on!</p>
+            
+            <h2>Web Interface</h2>
+            <a href="./user-management" class="link">👥 User Management</a>
+            <a href="./test" class="link">🧪 Test Route</a>
+            
+            <h2>API Endpoints</h2>
+            <a href="./api/users" class="link api-link">📋 List Users</a>
+            <a href="./api/debug/Thomas" class="link api-link">🔍 Debug User (Thomas)</a>
+            <a href="./api/stats/daily/Thomas" class="link api-link">📊 Daily Stats (Thomas)</a>
+        </div>
     </body>
     </html>
     '''
