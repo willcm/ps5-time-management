@@ -183,6 +183,10 @@
                 
                 if (data.users && data.users.length > 0) {
                     container.innerHTML = data.users.map(user => createUserCard(user)).join('');
+                    // Load stats for each user after creating cards
+                    for (const user of data.users) {
+                        await loadUserStats(user);
+                    }
                 } else {
                     container.innerHTML = '<div class="no-users">No users discovered yet. Start playing on your PS5 to discover users!</div>';
                 }
@@ -226,6 +230,26 @@
                     </div>
                 </div>
             `;
+        }
+        
+        async function loadUserStats(user) {
+            try {
+                const response = await fetch(`./api/stats/daily/${user}`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    updateUserStats(user, {
+                        daily: data.daily,
+                        weekly: data.weekly,
+                        monthly: data.monthly,
+                        remaining: data.remaining || 120 // Default limit
+                    });
+                } else {
+                    console.warn(`Failed to load stats for ${user}: ${data.message}`);
+                }
+            } catch (err) {
+                console.warn(`Error loading stats for ${user}: ${err.message}`);
+            }
         }
         
         async function refreshUser(user) {
