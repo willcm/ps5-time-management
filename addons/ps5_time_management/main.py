@@ -206,21 +206,53 @@ class PS5TimeManager:
                      VALUES (?, ?, ?, ?, ?, ?)''',
                  (user, game, start_time, end_time, int(duration), session['ps5_id']))
         
-        # Update daily stats
+        # Update daily stats - use proper UPSERT logic
         today = start_time.date()
-        c.execute('''INSERT OR REPLACE INTO user_stats 
-                     (user, date, total_minutes, session_count)
-                     VALUES (?, ?, 
-                        COALESCE((SELECT total_minutes FROM user_stats WHERE user=? AND date=?), 0) + ?,
-                        COALESCE((SELECT session_count FROM user_stats WHERE user=? AND date=?), 0) + 1)''',
-                 (user, today, user, today, int(duration/60), user, today))
         
-        # Update game stats
-        c.execute('''INSERT OR REPLACE INTO game_stats 
-                     (user, game, date, minutes_played)
-                     VALUES (?, ?, ?,
-                        COALESCE((SELECT minutes_played FROM game_stats WHERE user=? AND game=? AND date=?), 0) + ?)''',
-                 (user, game, today, user, game, today, int(duration/60)))
+        # First, try to get existing stats
+        c.execute('''SELECT total_minutes, session_count FROM user_stats 
+                     WHERE user=? AND date=?''',
+                 (user, today))
+        
+        result = c.fetchone()
+        if result:
+            # Update existing record
+            existing_minutes, existing_sessions = result
+            new_minutes = existing_minutes + int(duration/60)
+            new_sessions = existing_sessions + 1
+            
+            c.execute('''UPDATE user_stats 
+                         SET total_minutes=?, session_count=? 
+                         WHERE user=? AND date=?''',
+                     (new_minutes, new_sessions, user, today))
+        else:
+            # Insert new record
+            c.execute('''INSERT INTO user_stats 
+                         (user, date, total_minutes, session_count)
+                         VALUES (?, ?, ?, ?)''',
+                     (user, today, int(duration/60), 1))
+        
+        # Update game stats - use proper UPSERT logic
+        c.execute('''SELECT minutes_played FROM game_stats 
+                     WHERE user=? AND game=? AND date=?''',
+                 (user, game, today))
+        
+        result = c.fetchone()
+        if result:
+            # Update existing record
+            existing_minutes = result[0]
+            new_minutes = existing_minutes + int(duration/60)
+            
+            c.execute('''UPDATE game_stats 
+                         SET minutes_played=? 
+                         WHERE user=? AND game=? AND date=?''',
+                     (new_minutes, user, game, today))
+        else:
+            # Insert new record
+            c.execute('''INSERT INTO game_stats 
+                         (user, game, date, minutes_played)
+                         VALUES (?, ?, ?, ?)''',
+                     (user, game, today, int(duration/60)))
         
         conn.commit()
         conn.close()
@@ -886,75 +918,83 @@ def get_notifications(user):
 @app.route('/api/debug/<user>', methods=['GET'])
 def debug_user_data(user):
     """Debug endpoint to inspect user data"""
-    conn = sqlite3.connect(time_manager.db_path)
-    c = conn.cursor()
-    
-    # Get all user_stats for this user
-    c.execute('''SELECT date, total_minutes, session_count 
-                 FROM user_stats 
-                 WHERE user=? 
-                 ORDER BY date DESC''',
-             (user,))
-    
-    user_stats = []
-    for row in c.fetchall():
-        user_stats.append({
-            'date': row[0],
-            'minutes': row[1],
-            'sessions': row[2]
-        })
-    
-    # Get all sessions for this user
-    c.execute('''SELECT start_time, end_time, duration_seconds, game 
-                 FROM sessions 
-                 WHERE user=? 
-                 ORDER BY start_time DESC''',
-             (user,))
-    
-    sessions = []
-    for row in c.fetchall():
-        sessions.append({
-            'start_time': row[0],
-            'end_time': row[1],
-            'duration_seconds': row[2],
-            'game': row[3]
-        })
-    
-    # Get active sessions
-    active_sessions = []
-    for session_id, session in time_manager.active_sessions.items():
-        if session['user'] == user:
-            active_sessions.append({
-                'session_id': session_id,
-                'start_time': session['start_time'].isoformat(),
-                'game': session['game'],
-                'ps5_id': session['ps5_id']
+    try:
+        conn = sqlite3.connect(time_manager.db_path)
+        c = conn.cursor()
+        
+        # Get all user_stats for this user
+        c.execute('''SELECT date, total_minutes, session_count 
+                     FROM user_stats 
+                     WHERE user=? 
+                     ORDER BY date DESC''',
+                 (user,))
+        
+        user_stats = []
+        for row in c.fetchall():
+            user_stats.append({
+                'date': row[0],
+                'minutes': row[1],
+                'sessions': row[2]
             })
-    
-    # Calculate current time periods
-    today = datetime.now().date()
-    week_start = today - timedelta(days=today.weekday())
-    month_start = today.replace(day=1)
-    
-    conn.close()
-    
-    return jsonify({
-        'user': user,
-        'debug_info': {
-            'today': today.isoformat(),
-            'week_start': week_start.isoformat(),
-            'month_start': month_start.isoformat(),
-            'current_time': datetime.now().isoformat()
-        },
-        'user_stats': user_stats,
-        'sessions': sessions,
-        'active_sessions': active_sessions,
-        'calculated_times': {
-            'daily': time_manager.get_user_time_today(user),
-            'weekly': time_manager.get_user_weekly_time(user),
-            'monthly': time_manager.get_user_monthly_time(user)
-        }
-    })
+        
+        # Get all sessions for this user
+        c.execute('''SELECT start_time, end_time, duration_seconds, game 
+                     FROM sessions 
+                     WHERE user=? 
+                     ORDER BY start_time DESC''',
+                 (user,))
+        
+        sessions = []
+        for row in c.fetchall():
+            sessions.append({
+                'start_time': row[0],
+                'end_time': row[1],
+                'duration_seconds': row[2],
+                'game': row[3]
+            })
+        
+        # Get active sessions
+        active_sessions = []
+        for session_id, session in time_manager.active_sessions.items():
+            if session['user'] == user:
+                active_sessions.append({
+                    'session_id': session_id,
+                    'start_time': session['start_time'].isoformat(),
+                    'game': session['game'],
+                    'ps5_id': session['ps5_id']
+                })
+        
+        # Calculate current time periods
+        today = datetime.now().date()
+        week_start = today - timedelta(days=today.weekday())
+        month_start = today.replace(day=1)
+        
+        conn.close()
+        
+        return jsonify({
+            'user': user,
+            'debug_info': {
+                'today': today.isoformat(),
+                'week_start': week_start.isoformat(),
+                'month_start': month_start.isoformat(),
+                'current_time': datetime.now().isoformat()
+            },
+            'user_stats': user_stats,
+            'sessions': sessions,
+            'active_sessions': active_sessions,
+            'calculated_times': {
+                'daily': time_manager.get_user_time_today(user),
+                'weekly': time_manager.get_user_weekly_time(user),
+                'monthly': time_manager.get_user_monthly_time(user)
+            }
+        })
+    except Exception as e:
+        logger.error(f"Debug endpoint error: {e}")
+        return jsonify({
+            'error': str(e),
+            'user': user,
+            'message': 'Debug endpoint failed'
+        }), 500
 
 @app.route('/api/cleanup/<user>', methods=['POST'])
 def cleanup_user_data(user):
