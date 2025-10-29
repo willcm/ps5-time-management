@@ -234,7 +234,7 @@
         
         async function loadUserStats(user) {
             try {
-                const response = await fetch(`./api/stats/daily/${user}`);
+                const response = await fetch(`./api/users/${user}/stats`);
                 const data = await response.json();
                 
                 if (response.ok) {
@@ -242,7 +242,7 @@
                         daily: data.daily,
                         weekly: data.weekly,
                         monthly: data.monthly,
-                        remaining: data.remaining || 120 // Default limit
+                        remaining: data.remaining || 120
                     });
                 } else {
                     console.warn(`Failed to load stats for ${user}: ${data.message}`);
