@@ -1047,6 +1047,46 @@ def refresh_user_sensors(user):
             'message': f'Failed to refresh sensors for user {user}'
         }), 500
 
+def clear_all_user_data():
+    """Clear all historic data for all users"""
+    try:
+        conn = sqlite3.connect(time_manager.db_path)
+        c = conn.cursor()
+        
+        # Get list of all users in database
+        c.execute('SELECT DISTINCT user FROM user_stats')
+        db_users = [row[0] for row in c.fetchall()]
+        
+        # Also include currently discovered users
+        all_users = list(set(db_users + list(discovered_users)))
+        
+        # Clear data for all users
+        cleared_users = []
+        for user in all_users:
+            # Delete all user_stats for this user
+            c.execute('DELETE FROM user_stats WHERE user=?', (user,))
+            
+            # Delete all sessions for this user
+            c.execute('DELETE FROM sessions WHERE user=?', (user,))
+            
+            # Delete all game_stats for this user
+            c.execute('DELETE FROM game_stats WHERE user=?', (user,))
+            
+            cleared_users.append(user)
+        
+        conn.commit()
+        conn.close()
+        
+        # Force update sensor states for all users
+        update_all_sensor_states()
+        
+        logger.info(f"Cleared all historic data for {len(cleared_users)} users: {cleared_users}")
+        return cleared_users
+        
+    except Exception as e:
+        logger.error(f"Error clearing all user data: {e}")
+        return []
+
 @app.route('/api/report/<user>', methods=['GET'])
 def get_report(user):
     """Generate comprehensive report for user"""
@@ -1085,6 +1125,15 @@ def get_report(user):
         'total_minutes': sum(s['minutes'] for s in daily_stats)
     })
 
+@app.route('/user-management')
+def user_management():
+    """Serve the user management web interface"""
+    try:
+        with open('/app/templates/user_management.html', 'r') as f:
+            return f.read()
+    except FileNotFoundError:
+        return "User management page not found", 404
+
 def load_config():
     """Load configuration from options.json"""
     global logger
@@ -1099,6 +1148,16 @@ def load_config():
             logger = setup_logging(log_level)
             logger.info(f"Configuration loaded from {config_path}")
             logger.debug(f"Full configuration: {json.dumps(config, indent=2)}")
+            
+            # Handle clear_all_stats option
+            if config.get('clear_all_stats', False):
+                logger.warning("Clear all stats option detected - clearing all user data")
+                clear_all_user_data()
+                # Reset the option to prevent repeated clearing
+                config['clear_all_stats'] = False
+                with open(config_path, 'w') as f:
+                    json.dump(config, f, indent=2)
+                logger.info("Cleared all stats and reset option")
             
             return config
     

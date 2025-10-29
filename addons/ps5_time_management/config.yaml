@@ -1,5 +1,5 @@
 name: PS5 Time Management
-version: 1.3.7
+version: 1.4.0
 slug: ps5_time_management
 description: Track and manage PS5 playtime with user authentication, time limits, and parental controls
 url: https://github.com/willcm/ps5-time-management
@@ -33,6 +33,7 @@ options:
   graceful_shutdown_warnings: true
   warning_before_shutdown_minutes: 10
   log_level: INFO
+  clear_all_stats: false
 schema:
   mqtt:
     host: str?
@@ -49,3 +50,4 @@ schema:
   graceful_shutdown_warnings: bool
   warning_before_shutdown_minutes: int
   log_level: str
+  clear_all_stats: bool
