@@ -272,7 +272,7 @@ class PS5TimeManager:
                  (user, today))
         
         result = c.fetchone()
-        completed_time = result[0] if result else 0
+        completed_time = result[0] if result and result[0] is not None else 0
         conn.close()
         
         # Add time from active sessions
@@ -302,7 +302,7 @@ class PS5TimeManager:
                  (user, week_start))
         
         result = c.fetchone()
-        completed_time = result[0] if result else 0
+        completed_time = result[0] if result and result[0] is not None else 0
         conn.close()
         
         # Add time from active sessions (if they started this week)
@@ -333,7 +333,7 @@ class PS5TimeManager:
                  (user, month_start))
         
         result = c.fetchone()
-        completed_time = result[0] if result else 0
+        completed_time = result[0] if result and result[0] is not None else 0
         conn.close()
         
         # Add time from active sessions (if they started this month)
