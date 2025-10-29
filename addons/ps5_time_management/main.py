@@ -1014,12 +1014,38 @@ def cleanup_user_data(user):
     conn.commit()
     conn.close()
     
-    logger.info(f"Cleaned up all data for user {user}")
+    # Force update sensor states to reflect clean data
+    update_user_sensor_states(user)
+    
+    logger.info(f"Cleaned up all data for user {user} and updated sensor states")
     
     return jsonify({
-        'message': f'Cleaned up all data for user {user}',
+        'message': f'Cleaned up all data for user {user} and updated sensor states',
         'user': user
     })
+
+@app.route('/api/refresh/<user>', methods=['POST'])
+def refresh_user_sensors(user):
+    """Manually refresh sensor states for a user"""
+    try:
+        update_user_sensor_states(user)
+        logger.info(f"Manually refreshed sensor states for user {user}")
+        
+        return jsonify({
+            'message': f'Refreshed sensor states for user {user}',
+            'user': user,
+            'current_values': {
+                'daily': time_manager.get_user_time_today(user),
+                'weekly': time_manager.get_user_weekly_time(user),
+                'monthly': time_manager.get_user_monthly_time(user)
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error refreshing sensors for {user}: {e}")
+        return jsonify({
+            'error': str(e),
+            'message': f'Failed to refresh sensors for user {user}'
+        }), 500
 
 @app.route('/api/report/<user>', methods=['GET'])
 def get_report(user):
