@@ -1319,6 +1319,7 @@ def index():
                     <div class="status-line" id="players-line" style="display:none;"></div>
                     <div class="status-line" id="game-line" style="display:none;"></div>
                     <div class="status-line muted" id="session-line" style="display:none;"></div>
+                    <div class="status-line muted mono" id="session-details" style="display:none; font-size:0.85em;"></div>
                     <div class="status-line muted"><span class="mono" id="last-update">—</span></div>
                 </div>
             </div>
@@ -1340,6 +1341,7 @@ def index():
                     const playersLine = document.getElementById('players-line');
                     const gameLine = document.getElementById('game-line');
                     const sessionLine = document.getElementById('session-line');
+                    const sessionDetails = document.getElementById('session-details');
                     const gameImg = document.getElementById('game-image');
                     const lastUpdate = document.getElementById('last-update');
 
@@ -1371,13 +1373,31 @@ def index():
                         gameImg.style.display = 'none';
                     }
 
-                    // Active session timing (first one)
+                    // Active session timing (all active sessions)
                     if (Array.isArray(s.active_sessions) && s.active_sessions.length){
-                        const a = s.active_sessions[0];
                         sessionLine.style.display = '';
-                        sessionLine.textContent = 'Started: ' + new Date(a.start_time).toLocaleString() + ' — Active ' + fmtMins(a.elapsed_minutes);
+                        if (s.active_sessions.length === 1) {
+                            // Single player
+                            const a = s.active_sessions[0];
+                            sessionLine.textContent = a.user + ' — Started: ' + new Date(a.start_time).toLocaleString() + ' — Active ' + fmtMins(a.elapsed_minutes);
+                        } else {
+                            // Multiple players - show all
+                            const sessions = s.active_sessions.map(a => 
+                                a.user + ' (' + fmtMins(a.elapsed_minutes) + ')'
+                            ).join(', ');
+                            sessionLine.textContent = 'Active Players: ' + sessions;
+                            // Add info about when sessions started
+                            const startTimes = s.active_sessions.map(a => 
+                                a.user + ': ' + new Date(a.start_time).toLocaleString()
+                            ).join(' | ');
+                            if (sessionDetails) {
+                                sessionDetails.style.display = '';
+                                sessionDetails.textContent = startTimes;
+                            }
+                        }
                     } else {
                         sessionLine.style.display = 'none';
+                        if (sessionDetails) sessionDetails.style.display = 'none';
                     }
                 }).catch(()=>{});
             }
