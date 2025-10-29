@@ -883,6 +883,104 @@ def get_notifications(user):
     
     return jsonify({'notifications': notifications})
 
+@app.route('/api/debug/<user>', methods=['GET'])
+def debug_user_data(user):
+    """Debug endpoint to inspect user data"""
+    conn = sqlite3.connect(time_manager.db_path)
+    c = conn.cursor()
+    
+    # Get all user_stats for this user
+    c.execute('''SELECT date, total_minutes, session_count 
+                 FROM user_stats 
+                 WHERE user=? 
+                 ORDER BY date DESC''',
+             (user,))
+    
+    user_stats = []
+    for row in c.fetchall():
+        user_stats.append({
+            'date': row[0],
+            'minutes': row[1],
+            'sessions': row[2]
+        })
+    
+    # Get all sessions for this user
+    c.execute('''SELECT start_time, end_time, duration_seconds, game 
+                 FROM sessions 
+                 WHERE user=? 
+                 ORDER BY start_time DESC''',
+             (user,))
+    
+    sessions = []
+    for row in c.fetchall():
+        sessions.append({
+            'start_time': row[0],
+            'end_time': row[1],
+            'duration_seconds': row[2],
+            'game': row[3]
+        })
+    
+    # Get active sessions
+    active_sessions = []
+    for session_id, session in time_manager.active_sessions.items():
+        if session['user'] == user:
+            active_sessions.append({
+                'session_id': session_id,
+                'start_time': session['start_time'].isoformat(),
+                'game': session['game'],
+                'ps5_id': session['ps5_id']
+            })
+    
+    # Calculate current time periods
+    today = datetime.now().date()
+    week_start = today - timedelta(days=today.weekday())
+    month_start = today.replace(day=1)
+    
+    conn.close()
+    
+    return jsonify({
+        'user': user,
+        'debug_info': {
+            'today': today.isoformat(),
+            'week_start': week_start.isoformat(),
+            'month_start': month_start.isoformat(),
+            'current_time': datetime.now().isoformat()
+        },
+        'user_stats': user_stats,
+        'sessions': sessions,
+        'active_sessions': active_sessions,
+        'calculated_times': {
+            'daily': time_manager.get_user_time_today(user),
+            'weekly': time_manager.get_user_weekly_time(user),
+            'monthly': time_manager.get_user_monthly_time(user)
+        }
+    })
+
+@app.route('/api/cleanup/<user>', methods=['POST'])
+def cleanup_user_data(user):
+    """Clean up old test data for a user"""
+    conn = sqlite3.connect(time_manager.db_path)
+    c = conn.cursor()
+    
+    # Delete all user_stats for this user
+    c.execute('DELETE FROM user_stats WHERE user=?', (user,))
+    
+    # Delete all sessions for this user
+    c.execute('DELETE FROM sessions WHERE user=?', (user,))
+    
+    # Delete all game_stats for this user
+    c.execute('DELETE FROM game_stats WHERE user=?', (user,))
+    
+    conn.commit()
+    conn.close()
+    
+    logger.info(f"Cleaned up all data for user {user}")
+    
+    return jsonify({
+        'message': f'Cleaned up all data for user {user}',
+        'user': user
+    })
+
 @app.route('/api/report/<user>', methods=['GET'])
 def get_report(user):
     """Generate comprehensive report for user"""
