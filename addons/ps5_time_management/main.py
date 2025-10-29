@@ -319,15 +319,19 @@ class PS5TimeManager:
         
         # Add time from active sessions
         active_time = 0
+        active_count = 0
         for session_id, session in self.active_sessions.items():
             if session['user'] == user:
                 # Calculate time elapsed in current session
                 elapsed = (datetime.now() - session['start_time']).total_seconds()
-                active_time += elapsed / 60  # Convert to minutes
+                session_minutes = elapsed / 60
+                active_time += session_minutes
+                active_count += 1
+                logger.debug(f"Active session for {user}: {session['game']} - {session_minutes:.1f} minutes elapsed")
         
         total_time = completed_time + active_time
-        logger.debug(f"User {user} time today: {completed_time} completed + {active_time:.1f} active = {total_time:.1f} total")
-        return int(total_time)
+        logger.info(f"User {user} time today: {completed_time} min completed (from DB) + {active_time:.1f} min active ({active_count} sessions) = {total_time:.1f} min total")
+        return int(round(total_time))  # Round instead of truncate for better accuracy
     
     def get_user_weekly_time(self, user):
         """Get total time played this week by user (including active sessions)"""
@@ -357,8 +361,8 @@ class PS5TimeManager:
                     active_time += elapsed / 60  # Convert to minutes
         
         total_time = completed_time + active_time
-        logger.debug(f"User {user} weekly time: {completed_time} completed + {active_time:.1f} active = {total_time:.1f} total")
-        return int(total_time)
+        logger.info(f"User {user} weekly time: {completed_time} min completed (from DB) + {active_time:.1f} min active = {total_time:.1f} min total")
+        return int(round(total_time))
     
     def get_user_monthly_time(self, user):
         """Get total time played this month by user (including active sessions)"""
@@ -388,8 +392,8 @@ class PS5TimeManager:
                     active_time += elapsed / 60  # Convert to minutes
         
         total_time = completed_time + active_time
-        logger.debug(f"User {user} monthly time: {completed_time} completed + {active_time:.1f} active = {total_time:.1f} total")
-        return int(total_time)
+        logger.info(f"User {user} monthly time: {completed_time} min completed (from DB) + {active_time:.1f} min active = {total_time:.1f} min total")
+        return int(round(total_time))
     
     def get_top_games(self, user, days=30, limit=10):
         """Get top games played by user in the last N days"""
@@ -940,15 +944,28 @@ def get_user_stats_all(user):
     if user not in discovered_users:
         return jsonify({'error': 'User not found'}), 404
     
+    # Get breakdown for debugging
     daily = time_manager.get_user_time_today(user)
     weekly = time_manager.get_user_weekly_time(user)
     monthly = time_manager.get_user_monthly_time(user)
+    
+    # Get active session info for context
+    active_session_info = []
+    for session_id, session in time_manager.active_sessions.items():
+        if session['user'] == user:
+            elapsed = (datetime.now() - session['start_time']).total_seconds()
+            active_session_info.append({
+                'game': session['game'],
+                'elapsed_minutes': int(elapsed / 60),
+                'start_time': session['start_time'].isoformat()
+            })
     
     return jsonify({
         'user': user,
         'daily': daily,
         'weekly': weekly,
         'monthly': monthly,
+        'active_sessions': active_session_info,
         'top_games': time_manager.get_top_games(user, 30, 10)
     })
 
