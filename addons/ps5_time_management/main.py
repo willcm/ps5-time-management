@@ -15,6 +15,8 @@ import paho.mqtt.client as mqtt
 from flask import Flask, jsonify, request, render_template
 from flask_cors import CORS
 import logging
+from flask import send_from_directory
+import requests
 
 # Configure logging - will be updated after config is loaded
 def setup_logging(log_level='INFO'):
@@ -211,6 +213,12 @@ class PS5TimeManager:
         # Users table - persist discovered users so we don't depend on live discovery
         c.execute('''CREATE TABLE IF NOT EXISTS users
                      (user TEXT PRIMARY KEY)''')
+
+        # Game images cache table
+        c.execute('''CREATE TABLE IF NOT EXISTS game_images
+                     (game TEXT PRIMARY KEY,
+                      filename TEXT NOT NULL,
+                      last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
         
         conn.commit()
         conn.close()
@@ -235,6 +243,69 @@ class PS5TimeManager:
         
         logger.info(f"Started session for user {user} playing {game}")
         return session_id
+
+    def _ensure_image_dir(self):
+        images_dir = '/data/game_images'
+        os.makedirs(images_dir, exist_ok=True)
+        return images_dir
+
+    def _slugify(self, text):
+        safe = ''.join(ch if ch.isalnum() or ch in (' ', '-', '_') else '_' for ch in text or 'unknown')
+        return '-'.join(safe.lower().split())[:120]
+
+    def cache_game_image(self, game_name, image_url):
+        if not image_url or not game_name:
+            return None
+        try:
+            images_dir = self._ensure_image_dir()
+            slug = self._slugify(game_name)
+            ext = 'jpg'
+            if '.png' in image_url.lower():
+                ext = 'png'
+            filename = f"{slug}.{ext}"
+            filepath = os.path.join(images_dir, filename)
+
+            # If already cached, update last_seen and return
+            if os.path.exists(filepath):
+                conn = sqlite3.connect(self.db_path)
+                c = conn.cursor()
+                c.execute('''INSERT INTO game_images (game, filename) VALUES (?, ?)
+                             ON CONFLICT(game) DO UPDATE SET filename=excluded.filename, last_seen=CURRENT_TIMESTAMP''',
+                          (game_name, filename))
+                conn.commit(); conn.close()
+                return filename
+
+            # Download and save
+            resp = requests.get(image_url, timeout=10)
+            if resp.status_code == 200:
+                with open(filepath, 'wb') as f:
+                    f.write(resp.content)
+                conn = sqlite3.connect(self.db_path)
+                c = conn.cursor()
+                c.execute('''INSERT INTO game_images (game, filename) VALUES (?, ?) 
+                             ON CONFLICT(game) DO UPDATE SET filename=excluded.filename, last_seen=CURRENT_TIMESTAMP''',
+                          (game_name, filename))
+                conn.commit(); conn.close()
+                logger.info(f"Cached image for game '{game_name}' -> {filename}")
+                return filename
+        except Exception as e:
+            logger.debug(f"Failed to cache image for {game_name}: {e}")
+        return None
+
+    def get_cached_game_image(self, game_name):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            c.execute('SELECT filename FROM game_images WHERE game=?', (game_name,))
+            row = c.fetchone()
+            conn.close()
+            if row:
+                filename = row[0]
+                if os.path.exists(os.path.join('/data/game_images', filename)):
+                    return filename
+        except Exception:
+            pass
+        return None
     
     def end_session(self, session_id):
         """End a gaming session and save to database"""
@@ -421,25 +492,21 @@ class PS5TimeManager:
         
         results = c.fetchall()
         
-        # Try to get game images from recent sessions or active sessions
+        # Try to get game images from cache, otherwise attempt to cache from current status
         games_with_images = []
         for row in results:
             game_name = row[0]
             minutes = row[1]
             game_image = None
-            
-            # Check active sessions first (most likely to have current image)
-            for session_id, session in self.active_sessions.items():
-                if session['user'] == user and session['game'] == game_name:
-                    # Try to get image from latest device status
-                    if latest_device_status and latest_device_status.get('title_name') == game_name:
-                        game_image = latest_device_status.get('title_image')
-                        break
-            
-            # If not found, try recent sessions (we'd need to store image in sessions)
-            # For now, check if it matches current device status
-            if not game_image and latest_device_status and latest_device_status.get('title_name') == game_name:
-                game_image = latest_device_status.get('title_image')
+            cached = self.get_cached_game_image(game_name)
+            if cached:
+                game_image = f"./images/{cached}"
+            else:
+                # Try from current status and cache it
+                if latest_device_status and latest_device_status.get('title_name') == game_name:
+                    fname = self.cache_game_image(game_name, latest_device_status.get('title_image'))
+                    if fname:
+                        game_image = f"./images/{fname}"
             
             games_with_images.append({
                 'game': game_name,
@@ -759,6 +826,12 @@ def handle_device_update(ps5_id, data):
         for player in players:
             if player:
                 game_name = data.get('title_name', 'Unknown Game')
+                # Attempt to cache game image proactively
+                try:
+                    if data.get('title_image') and game_name:
+                        time_manager.cache_game_image(game_name, data.get('title_image'))
+                except Exception:
+                    pass
                 # Enforce access allowed toggle
                 if not time_manager.get_user_access(player):
                     logger.warning(f"Access blocked for {player}; enforcing action")
@@ -1092,6 +1165,16 @@ def api_status():
     except Exception as e:
         logger.error(f"/api/status error: {e}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/images/<path:filename>')
+def serve_cached_image(filename):
+    """Serve cached game images from /data/game_images"""
+    try:
+        directory = '/data/game_images'
+        return send_from_directory(directory, filename)
+    except Exception as e:
+        logger.error(f"Image serve error for {filename}: {e}")
+        return "", 404
 
 @app.route('/api/users', methods=['GET'])
 def get_discovered_users():
