@@ -797,6 +797,8 @@ def on_connect(client, userdata, flags, reason_code, properties):
             if discovered_users:
                 for user in list(discovered_users):
                     publish_user_sensors(user)
+            # Immediately publish current states so entities have retained values
+            update_all_sensor_states()
         except Exception as e:
             logger.warning(f"Failed to publish discovery on connect: {e}")
     else:
