@@ -75,6 +75,17 @@ mqtt_connected = False
 debug_user_name = None
 user_warning_until = {}  # user -> datetime when warning expires
 
+def log_shutdown_event(user: str, ps5_id: str, reason: str, mode: str):
+    try:
+        conn = sqlite3.connect(time_manager.db_path)
+        c = conn.cursor()
+        c.execute('''INSERT INTO shutdown_events (user, ps5_id, reason, mode) VALUES (?, ?, ?, ?)''',
+                  (user, ps5_id, reason, mode))
+        conn.commit(); conn.close()
+        logger.info(f"Logged shutdown event: user={user}, reason={reason}, mode={mode}")
+    except Exception as e:
+        logger.warning(f"Failed to log shutdown event for {user}: {e}")
+
 def start_shutdown_warning(user: str, ps5_id: str):
     """Set warning sensor ON for 60 seconds, then put console in rest mode."""
     try:
@@ -92,6 +103,7 @@ def start_shutdown_warning(user: str, ps5_id: str):
                 # Send standby command via ps5-mqtt
                 try:
                     mqtt_client.publish(f"{config.get('mqtt_topic_prefix','ps5-mqtt')}/{ps5_id}/set/power", 'STANDBY')
+                    log_shutdown_event(user, ps5_id, 'limit_exceeded_or_scheduled', 'delayed')
                 except Exception as e:
                     logger.error(f"Failed to publish standby for {user}: {e}")
 
@@ -99,7 +111,7 @@ def start_shutdown_warning(user: str, ps5_id: str):
     except Exception as e:
         logger.error(f"Failed to start shutdown warning for {user}: {e}")
 
-def enforce_standby(ps5_id: str, user: str | None = None):
+def enforce_standby(ps5_id: str, user: str | None = None, reason: str = 'manual_or_policy'):
     """Immediately put console into standby via ps5-mqtt and clear warning for user if provided."""
     try:
         if user:
@@ -108,6 +120,8 @@ def enforce_standby(ps5_id: str, user: str | None = None):
                 mqtt_client.publish(f"ps5_time_management/{user}/warning", 'OFF', retain=True)
         if mqtt_connected and mqtt_client is not None:
             mqtt_client.publish(f"{config.get('mqtt_topic_prefix','ps5-mqtt')}/{ps5_id}/set/power", 'STANDBY')
+        if user:
+            log_shutdown_event(user, ps5_id, reason, 'immediate')
         logger.info(f"Enforced immediate standby for PS5 {ps5_id}{' (user '+user+')' if user else ''}")
     except Exception as e:
         logger.error(f"Failed to enforce standby: {e}")
@@ -247,6 +261,15 @@ class PS5TimeManager:
                       message TEXT,
                       timestamp TIMESTAMP,
                       read BOOLEAN DEFAULT 0)''')
+        
+        # Shutdown events - audit log of enforced rest mode
+        c.execute('''CREATE TABLE IF NOT EXISTS shutdown_events
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      user TEXT,
+                      ps5_id TEXT,
+                      reason TEXT,
+                      mode TEXT,
+                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
         
         # User access table - whether access is allowed
         c.execute('''CREATE TABLE IF NOT EXISTS user_access
@@ -889,12 +912,19 @@ def handle_device_update(ps5_id, data):
         for player in players:
             if player:
                 game_name = data.get('title_name', 'Unknown Game')
-                # If a shutdown warning is active for this user, enforce immediately
+                # Policy: immediate enforcement if manual override or limit==0.
+                # Otherwise, if a warning is active due to time elapsed, let the countdown continue.
                 try:
-                    expiry = user_warning_until.get(player)
-                    if expiry and datetime.now() < expiry:
-                        logger.warning(f"Shutdown warning active for {player}; enforcing immediate standby")
-                        enforce_standby(ps5_id, player)
+                    # Manual override
+                    if not time_manager.get_user_access(player):
+                        logger.warning(f"Access disabled for {player}; enforcing immediate standby")
+                        enforce_standby(ps5_id, player, reason='access_disabled')
+                        continue
+                    # Limit equals 0 minutes (blocked for the day)
+                    lim = time_manager.get_user_limit(player)
+                    if lim is not None and lim <= 0:
+                        logger.warning(f"Daily limit is 0 for {player}; enforcing immediate standby")
+                        enforce_standby(ps5_id, player, reason='limit_zero')
                         continue
                 except Exception:
                     pass
@@ -1418,6 +1448,25 @@ def get_user_games_stats(user):
         'user': user,
         'games': games_stats
     })
+
+@app.route('/api/shutdown_events', methods=['GET'])
+def api_shutdown_events():
+    """Return recent shutdown events (last 50)."""
+    try:
+        conn = sqlite3.connect(time_manager.db_path)
+        c = conn.cursor()
+        c.execute('''SELECT user, ps5_id, reason, mode, created_at
+                     FROM shutdown_events
+                     ORDER BY created_at DESC
+                     LIMIT 50''')
+        rows = [
+            { 'user': r[0], 'ps5_id': r[1], 'reason': r[2], 'mode': r[3], 'created_at': r[4] }
+            for r in c.fetchall()
+        ]
+        conn.close()
+        return jsonify({'events': rows})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/games/<user>/<game>', methods=['GET'])
 def get_game_stats(user, game):
