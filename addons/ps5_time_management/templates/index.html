@@ -41,6 +41,10 @@
             <div class="text-xs text-muted-foreground font-mono">Last update <span id="last-update">—</span></div>
           </div>
         </div>
+        <div class="mt-4">
+          <button id="toggle-cache" class="inline-flex items-center gap-2 rounded-full bg-secondary/80 hover:bg-secondary px-3 py-1.5 text-xs font-medium">Show Cached Covers</button>
+          <div id="cache-grid" class="hidden mt-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-8 gap-3"></div>
+        </div>
       </div>
 
       <div class="space-y-4">
@@ -188,6 +192,27 @@
     async function clearUserStats(user){ if(!confirm(`Clear all stats for ${user}?`)) return; try{ await fetch(`./api/cleanup/${user}`, {method:'POST'}); loadUsers(); }catch(e){} }
 
     fetchStatus(); loadUsers(); setInterval(fetchStatus, 15000);
+
+    // === Temporary cache viewer ===
+    const toggleBtn = document.getElementById('toggle-cache');
+    const cacheGrid = document.getElementById('cache-grid');
+    async function loadCache(){
+      try{
+        const r = await fetch('./api/images');
+        const j = await r.json();
+        const list = (j && j.images) || [];
+        cacheGrid.innerHTML = list.map(n => `
+          <div class="bg-secondary/30 rounded-lg p-2 text-center">
+            <img src="./images/${n}" alt="${n}" class="w-full h-24 object-cover rounded" onerror="this.parentElement.textContent='${n}'">
+            <div class="mt-1 text-[10px] text-muted-foreground truncate" title="${n}">${n}</div>
+          </div>
+        `).join('');
+      }catch(e){ cacheGrid.innerHTML = '<div class="text-xs text-muted-foreground">Failed to load cache</div>'; }
+    }
+    toggleBtn.addEventListener('click', async ()=>{
+      if (cacheGrid.classList.contains('hidden')){ await loadCache(); cacheGrid.classList.remove('hidden'); toggleBtn.textContent='Hide Cached Covers'; }
+      else { cacheGrid.classList.add('hidden'); toggleBtn.textContent='Show Cached Covers'; }
+    });
   </script>
 </body>
 </html>

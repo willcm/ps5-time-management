@@ -1353,6 +1353,25 @@ def serve_cached_image(filename):
         logger.error(f"Image serve error for {filename}: {e}")
         return "", 404
 
+@app.route('/api/images', methods=['GET'])
+def list_cached_images():
+    """List cached image filenames under /data/game_images."""
+    try:
+        directory = '/data/game_images'
+        if not os.path.isdir(directory):
+            logger.info(f"Cache directory missing: {directory}")
+            return jsonify({'images': [], 'count': 0})
+        files = []
+        for name in os.listdir(directory):
+            full = os.path.join(directory, name)
+            if os.path.isfile(full):
+                files.append(name)
+        files.sort()
+        logger.debug(f"Cached images listed: {len(files)} files")
+        return jsonify({'images': files, 'count': len(files)})
+    except Exception as e:
+        logger.error(f"Failed to list cached images: {e}")
+        return jsonify({'error': str(e)}), 500
 @app.route('/api/users', methods=['GET'])
 def get_discovered_users():
     """Get list of discovered users"""
