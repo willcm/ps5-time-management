@@ -86,6 +86,30 @@ def log_shutdown_event(user: str, ps5_id: str, reason: str, mode: str):
     except Exception as e:
         logger.warning(f"Failed to log shutdown event for {user}: {e}")
 
+def has_shutdown_today(user: str) -> bool:
+    """Return True if we have already enforced a shutdown for this user today."""
+    try:
+        today = datetime.now().date().isoformat()
+        conn = sqlite3.connect(time_manager.db_path)
+        c = conn.cursor()
+        c.execute('''SELECT 1 FROM shutdown_events 
+                     WHERE user=? AND substr(created_at,1,10)=? 
+                     LIMIT 1''', (user, today))
+        row = c.fetchone()
+        conn.close()
+        return row is not None
+    except Exception as e:
+        logger.debug(f"has_shutdown_today failed for {user}: {e}")
+        return False
+
+def apply_shutdown_policy(user: str, ps5_id: str, reason: str):
+    """First shutdown today => 60s warning; subsequent attempts => immediate standby."""
+    if has_shutdown_today(user):
+        logger.warning(f"{user} already shutdown once today; enforcing immediate standby")
+        enforce_standby(ps5_id, user, reason='retry_blocked')
+    else:
+        start_shutdown_warning(user, ps5_id)
+
 def start_shutdown_warning(user: str, ps5_id: str):
     """Set warning sensor ON for 60 seconds, then put console in rest mode."""
     try:
@@ -915,17 +939,19 @@ def handle_device_update(ps5_id, data):
                 # Policy: immediate enforcement if manual override or limit==0.
                 # Otherwise, if a warning is active due to time elapsed, let the countdown continue.
                 try:
-                    # Manual override
+                    // Manual override path
                     if not time_manager.get_user_access(player):
-                        logger.warning(f"Access disabled for {player}; enforcing immediate standby")
-                        enforce_standby(ps5_id, player, reason='access_disabled')
+                        logger.warning(f"Access disabled for {player}; applying shutdown policy")
+                        apply_shutdown_policy(player, ps5_id, reason='access_disabled')
                         continue
-                    # Limit equals 0 minutes (blocked for the day)
+                    // Daily limit exhausted now (including zero)
                     lim = time_manager.get_user_limit(player)
-                    if lim is not None and lim <= 0:
-                        logger.warning(f"Daily limit is 0 for {player}; enforcing immediate standby")
-                        enforce_standby(ps5_id, player, reason='limit_zero')
-                        continue
+                    if lim is not None:
+                        current = time_manager.get_user_time_today(player)
+                        if current >= lim:
+                            logger.warning(f"Daily limit reached for {player}; applying shutdown policy")
+                            apply_shutdown_policy(player, ps5_id, reason='limit_reached')
+                            continue
                 except Exception:
                     pass
                 # Attempt to cache game image proactively
@@ -1220,7 +1246,7 @@ def check_timers():
                     time_manager.add_notification(user, 'limit_exceeded', 
                         "Your time limit has been reached for today")
                     if config.get('enable_auto_shutdown'):
-                        start_shutdown_warning(user, session['ps5_id'])
+                        apply_shutdown_policy(user, session['ps5_id'], reason='limit_exceeded')
                 
                 # Check for warning before shutdown
                 elif config.get('graceful_shutdown_warnings'):
