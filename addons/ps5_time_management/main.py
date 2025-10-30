@@ -11,6 +11,7 @@ import time
 import glob
 from datetime import datetime, timedelta
 from threading import Thread
+from threading import Timer
 import paho.mqtt.client as mqtt
 from flask import Flask, jsonify, request, render_template
 from flask_cors import CORS
@@ -72,6 +73,31 @@ latest_device_status = {
 }
 mqtt_connected = False
 debug_user_name = None
+user_warning_until = {}  # user -> datetime when warning expires
+
+def start_shutdown_warning(user: str, ps5_id: str):
+    """Set warning sensor ON for 60 seconds, then put console in rest mode."""
+    try:
+        expiry = datetime.now() + timedelta(seconds=60)
+        user_warning_until[user] = expiry
+        if mqtt_connected and mqtt_client is not None:
+            mqtt_client.publish(f"ps5_time_management/{user}/warning", 'ON', retain=True)
+        logger.info(f"Warning started for {user} (will enforce after 60s)")
+
+        def enforce():
+            # Clear warning sensor
+            user_warning_until.pop(user, None)
+            if mqtt_connected and mqtt_client is not None:
+                mqtt_client.publish(f"ps5_time_management/{user}/warning", 'OFF', retain=True)
+                # Send standby command via ps5-mqtt
+                try:
+                    mqtt_client.publish(f"{config.get('mqtt_topic_prefix','ps5-mqtt')}/{ps5_id}/set/power", 'STANDBY')
+                except Exception as e:
+                    logger.error(f"Failed to publish standby for {user}: {e}")
+
+        Timer(60.0, enforce).start()
+    except Exception as e:
+        logger.error(f"Failed to start shutdown warning for {user}: {e}")
 published_sensors = set()  # Track which sensors we've published via MQTT Discovery
 current_session = {
     'user': None,
@@ -855,23 +881,11 @@ def handle_device_update(ps5_id, data):
                 # Enforce access allowed toggle
                 if not time_manager.get_user_access(player):
                     logger.warning(f"Access blocked for {player}; enforcing action")
-                    # Decide enforcement action from config; default to 'turn_off' (rest mode)
-                    action = (config.get('access_enforcement_action') or 'turn_off').lower()
+                    # Trigger warning then shutdown instead of immediate
                     try:
-                        if action in ['turn_off', 'standby', 'rest']:
-                            # ps5-mqtt expects payload 'STANDBY' on ps5-mqtt/<id>/set/power
-                            mqtt_client.publish(f"{config['mqtt_topic_prefix']}/{ps5_id}/set/power",
-                                                'STANDBY')
-                        elif action == 'logout':
-                            # Logout not supported via ps5-mqtt; fallback to standby
-                            mqtt_client.publish(f"{config['mqtt_topic_prefix']}/{ps5_id}/set/power",
-                                                'STANDBY')
-                        else:
-                            mqtt_client.publish(f"{config['mqtt_topic_prefix']}/{ps5_id}/set/power",
-                                                'STANDBY')
+                        start_shutdown_warning(player, ps5_id)
                     except Exception as e:
-                        logger.error(f"Failed to enforce access for {player}: {e}")
-                    # Do NOT start a session
+                        logger.error(f"Failed to start warning for {player}: {e}")
                     continue
 
                 session_id = time_manager.start_session(player, game_name, ps5_id)
@@ -953,6 +967,14 @@ def publish_user_sensors(user):
             'unique_id': f'ps5_time_management_{user.lower()}_active',
             'state_topic': f'ps5_time_management/{user}/active',
             'icon': 'mdi:play'
+        },
+        {
+            'name': f'PS5 {user} Shutdown Warning',
+            'unique_id': f'ps5_time_management_{user.lower()}_warning',
+            'state_topic': f'ps5_time_management/{user}/warning',
+            'entity_category': 'diagnostic',
+            'binary_sensor': True,
+            'device_class': 'problem'
         }
     ]
     
@@ -978,6 +1000,9 @@ def publish_user_sensors(user):
             sensor_config['unit_of_measurement'] = sensor['unit_of_measurement']
         if 'device_class' in sensor:
             sensor_config['device_class'] = sensor['device_class']
+        # Discovery domain override for binary_sensor
+        if sensor.get('binary_sensor'):
+            config_topic = config_topic.replace('/sensor/', '/binary_sensor/')
         
         try:
             mqtt_client.publish(config_topic, json.dumps(sensor_config), retain=True)
@@ -1035,6 +1060,13 @@ def update_user_sensor_states(user):
         # Session active
         session_active = 'ON' if current_session else 'OFF'
         mqtt_client.publish(f"{base_topic}/active", session_active, retain=True)
+        
+        # Shutdown warning binary sensor
+        warn_on = 'OFF'
+        expiry = user_warning_until.get(user)
+        if expiry and datetime.now() < expiry:
+            warn_on = 'ON'
+        mqtt_client.publish(f"{base_topic}/warning", warn_on, retain=True)
         
         logger.debug(f"Updated sensor states for {user}: daily={daily_time}, weekly={weekly_time}, monthly={monthly_time}, remaining={time_remaining}")
         
@@ -1123,19 +1155,12 @@ def check_timers():
                 
                 # Check if limit exceeded
                 if time_manager.check_limit_exceeded(user):
-                    # Send warning or shutdown
+                    # Trigger 60s warning, then shutdown
                     logger.warning(f"User {user} has exceeded their time limit")
                     time_manager.add_notification(user, 'limit_exceeded', 
                         "Your time limit has been reached for today")
-                    
-                    # Send MQTT command to turn off PS5
                     if config.get('enable_auto_shutdown'):
-                        ps5_id = session['ps5_id']
-                        mqtt_client.publish(f"{config['mqtt_topic_prefix']}/{ps5_id}/command", 
-                                          json.dumps({'action': 'turn_off'}))
-                        
-                        # End the session
-                        time_manager.end_session(session_id)
+                        start_shutdown_warning(user, session['ps5_id'])
                 
                 # Check for warning before shutdown
                 elif config.get('graceful_shutdown_warnings'):
