@@ -120,4 +120,22 @@
   body { @apply bg-background text-foreground; }
 }
 
+/* CDN Tailwind can't read our custom theme tokens for arbitrary classes.
+   Provide fallback utility classes so bg-background/text-foreground/etc render
+   correctly even without a Tailwind config build step. */
+.bg-background { background-color: var(--background) !important; }
+.text-foreground { color: var(--foreground) !important; }
+.bg-card { background-color: var(--card) !important; }
+.text-muted-foreground { color: var(--muted-foreground) !important; }
+.bg-secondary\/30 { background-color: color-mix(in oklab, var(--secondary) 30%, transparent) !important; }
+.bg-secondary\/80 { background-color: color-mix(in oklab, var(--secondary) 80%, transparent) !important; }
+.text-primary { color: var(--primary) !important; }
+.text-primary-foreground { color: var(--primary-foreground) !important; }
+.text-orange-400 { color: #f59e0b !important; }
+
+/* Remove light borders; rely on subtle elevation */
+.border { border-color: transparent !important; }
+.border-border\/40 { border-color: transparent !important; }
+.border-border\/20 { border-color: transparent !important; }
+
 
