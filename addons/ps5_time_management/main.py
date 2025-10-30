@@ -588,6 +588,18 @@ class PS5TimeManager:
         results = c.fetchall()
         
         # Try to get game images from cache, otherwise attempt to cache from current status
+        def normalize_title(name: str) -> str:
+            try:
+                lowered = (name or '').lower()
+                # strip common trademark chars and spaces/punct
+                for ch in ['®', '™']:
+                    lowered = lowered.replace(ch, '')
+                return ''.join(ch for ch in lowered if ch.isalnum() or ch == ' ').strip()
+            except Exception:
+                return name or ''
+
+        current_title = normalize_title(latest_device_status.get('title_name') or '') if latest_device_status else ''
+        current_image = latest_device_status.get('title_image') if latest_device_status else None
         games_with_images = []
         for row in results:
             game_name = row[0]
@@ -597,11 +609,16 @@ class PS5TimeManager:
             if cached:
                 game_image = f"./images/{cached}"
             else:
-                # Try from current status and cache it
-                if latest_device_status and latest_device_status.get('title_name') == game_name:
-                    fname = self.cache_game_image(game_name, latest_device_status.get('title_image'))
-                    if fname:
-                        game_image = f"./images/{fname}"
+                # Try from current status and cache it (fuzzy match)
+                try:
+                    if current_title and current_image:
+                        normalized = normalize_title(game_name)
+                        if normalized == current_title or normalized in current_title or current_title in normalized:
+                            fname = self.cache_game_image(game_name, current_image)
+                            if fname:
+                                game_image = f"./images/{fname}"
+                except Exception:
+                    pass
             
             games_with_images.append({
                 'game': game_name,
