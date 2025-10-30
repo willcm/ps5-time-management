@@ -990,7 +990,6 @@ def publish_user_sensors(user):
             'name': sensor['name'],
             'unique_id': sensor['unique_id'],
             'state_topic': sensor['state_topic'],
-            'icon': sensor['icon'],
             'device': {
                 'identifiers': [f'ps5_time_management_{user.lower()}'],
                 'name': f'PS5 Time Management - {user}',
@@ -1004,9 +1003,14 @@ def publish_user_sensors(user):
             sensor_config['unit_of_measurement'] = sensor['unit_of_measurement']
         if 'device_class' in sensor:
             sensor_config['device_class'] = sensor['device_class']
+        if 'icon' in sensor:
+            sensor_config['icon'] = sensor['icon']
         # Discovery domain override for binary_sensor
         if sensor.get('binary_sensor'):
             config_topic = config_topic.replace('/sensor/', '/binary_sensor/')
+            # For binary_sensor set payloads
+            sensor_config['payload_on'] = 'ON'
+            sensor_config['payload_off'] = 'OFF'
         
         try:
             mqtt_client.publish(config_topic, json.dumps(sensor_config), retain=True)
