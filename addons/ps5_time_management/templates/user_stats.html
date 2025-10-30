@@ -1,227 +1,121 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stats - {{ user }} - PS5 Time Management</title>
-    <style>
-        html, body {
-            background: #0b0b0c;
-            margin: 0;
-            padding: 0;
-        }
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
-            margin: 0;
-            padding: 40px 0 0 0;
-            background: #0b0b0c;
-            color: #f9f9fa;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 20px auto;
-            background: #17171a;
-            border-radius: 22px;
-            box-shadow: 0 4px 36px rgba(0,0,0,0.55);
-            padding: 44px 38px 44px 38px;
-        }
-        .header {
-            display: flex;
-            align-items: center;
-            margin-bottom: 36px;
-            padding-bottom: 0px;
-        }
-        h1 {
-            color: #fff;
-            font-weight: 800;
-            font-size: 2.2em;
-            margin: 0 0 0 12px;
-            letter-spacing: 1.2px;
-        }
-        .back-btn {
-            display: inline-block;
-            padding: 8px 24px;
-            margin-right: 14px;
-            background: #24242a;
-            color: #fff;
-            text-decoration: none;
-            border-radius: 30px;
-            font-size: 1em;
-            font-weight: 600;
-            border: none;
-            transition: background 0.25s;
-        }
-        .back-btn:hover {
-            background: #2d2e36;
-        }
-        .stats-grid {
-            display: flex;
-            gap: 24px;
-            margin-bottom: 44px;
-        }
-        .stat-card {
-            background: #202028;
-            color: #f3f3f8;
-            border-radius: 14px;
-            padding: 34px 36px 24px 36px;
-            min-width: 160px;
-            flex: 1;
-            min-height: 120px;
-            display: flex;
-            flex-direction: column;
-            align-items: flex-start;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.22);
-        }
-        .stat-label {
-            font-size: 0.91em;
-            font-weight: 500;
-            text-transform: uppercase;
-            color: #aaa;
-            letter-spacing: 1px;
-            margin-bottom: 14px;
-        }
-        .stat-value {
-            font-size: 2.3em;
-            font-weight: bold;
-            color: #4fb8ff;
-            margin: 0 0 6px 0;
-        }
-        .stat-card.weekly .stat-value {color: #f1b16a;}
-        .stat-card.monthly .stat-value {color: #ee68a6;}
-        .stat-unit {
-            font-size: 0.5em;
-            opacity: 0.85;
-            margin-left: 1px;
-        }
-        .section-title {
-            font-size: 1.15em;
-            font-weight: bold;
-            color: #fafafc;
-            margin: 37px 0 21px 0;
-            letter-spacing:0.9px;
-        }
-        .games-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(166px, 1fr));
-            gap: 22px;
-            margin-bottom: 40px;
-        }
-        .game-card {
-            background: #161618;
-            border-radius: 14px;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.10);
-            transition: transform 0.2s, box-shadow 0.2s;
-            cursor: pointer;
-            border: 1px solid #23232a;
-            overflow: hidden;
-        }
-        .game-card:hover {
-            transform: translateY(-4px) scale(1.025);
-            box-shadow: 0 10px 32px rgba(0,0,0,0.25);
-        }
-        .game-image {
-            width: 100%; height: 128px; background: #17171a; display:flex; align-items:center; justify-content:center;
-        }
-        .game-image img {
-            max-width: 100%; max-height: 128px; border-radius: 0;
-        }
-        .game-info { padding: 12px 16px 10px 16px; }
-        .game-name {
-            font-size: 1.08em;
-            margin-bottom: 6px;
-            font-weight: 600;
-            color: #fff;
-            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-        }
-        .game-time { font-size: 0.92em; color: #ffa366; font-weight: 700; }
-        .games-breakdown { margin-top: 38px; }
-        .game-breakdown-item {
-            background: #141418;
-            color: #fff;
-            padding: 12px 18px;
-            border-radius: 8px;
-            margin-bottom: 10px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 1em;
-        }
-        .game-breakdown-name { font-weight: bold; }
-        .game-breakdown-times { display: flex; gap: 20px; font-size: 0.95em; }
-        @media (max-width: 940px) {
-            .container { padding:20px 3vw; }
-            .stats-grid { flex-direction: column; gap:12px; }
-        }
-        @media (max-width: 600px) {
-            .header, h1 { font-size: 1.13em; }
-            .stats-grid { flex-direction: column; gap:8px; }
-            .container { border-radius:10px; padding:10px; }
-        }
-    </style>
+    <link rel="stylesheet" href="../globals.css">
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
-    <div class="container">
-        <div class="header">
-            <a href="../" class="back-btn">← Back</a>
-            <h1>Stats for {{ user }}</h1>
+<body class="min-h-screen bg-background text-foreground">
+  <div class="min-h-screen bg-background p-4 md:p-6 lg:p-8">
+    <div class="mx-auto max-w-7xl space-y-6">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <svg class="h-8 w-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+          <h1 class="text-3xl font-bold tracking-tight">Stats for <span id="userName">{{ user }}</span></h1>
         </div>
+        <a href="../" class="inline-flex items-center gap-2 rounded-full bg-secondary/80 hover:bg-secondary px-4 py-2 text-sm font-medium">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+          Back
+        </a>
+      </div>
 
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-label">Daily Playtime</div>
-                <div class="stat-value">{{ daily }}<span class="stat-unit">m</span></div>
+      <div class="grid gap-4 md:grid-cols-3">
+        <div class="border border-border/40 bg-card rounded-2xl shadow-none p-6">
+          <div class="pb-2">
+            <div class="flex items-center gap-2 text-muted-foreground mb-1">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <span class="text-xs font-medium uppercase tracking-wide">Daily Playtime</span>
             </div>
-            <div class="stat-card weekly">
-                <div class="stat-label">Weekly Playtime</div>
-                <div class="stat-value">{{ weekly }}<span class="stat-unit">m</span></div>
-            </div>
-            <div class="stat-card monthly">
-                <div class="stat-label">Monthly Playtime</div>
-                <div class="stat-value">{{ monthly }}<span class="stat-unit">m</span></div>
-            </div>
+          </div>
+          <div class="text-4xl font-bold text-primary" id="dailyTime">{{ daily }}m</div>
         </div>
+        <div class="border border-border/40 bg-card rounded-2xl shadow-none p-6">
+          <div class="pb-2">
+            <div class="flex items-center gap-2 text-muted-foreground mb-1">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+              <span class="text-xs font-medium uppercase tracking-wide">Weekly Playtime</span>
+            </div>
+          </div>
+          <div class="text-4xl font-bold text-primary" id="weeklyTime">{{ weekly }}m</div>
+        </div>
+        <div class="border border-border/40 bg-card rounded-2xl shadow-none p-6">
+          <div class="pb-2">
+            <div class="flex items-center gap-2 text-muted-foreground mb-1">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+              <span class="text-xs font-medium uppercase tracking-wide">Monthly Playtime</span>
+            </div>
+          </div>
+          <div class="text-4xl font-bold text-primary" id="monthlyTime">{{ monthly }}m</div>
+        </div>
+      </div>
 
-        {% if top_games %}
-        <div class="section-title">🏆 Top Played Games (Last 30 Days)</div>
-        <div class="games-grid">
+      {% if top_games %}
+      <div class="border border-border/40 bg-card rounded-2xl shadow-none">
+        <div class="p-6 pb-4">
+          <h2 class="flex items-center gap-2 text-lg font-semibold">
+            <svg class="h-5 w-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            Top Played Games (Last 30 Days)
+          </h2>
+        </div>
+        <div class="px-6 pb-6">
+          <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {% for game in top_games %}
-            <div class="game-card">
-                <div class="game-image">
+            <div class="bg-secondary/30 rounded-xl border border-border/20 overflow-hidden max-w-[200px]">
+              <div class="aspect-[3/4] bg-muted/50 flex items-center justify-center">
                 {% if game.image %}
-                    <img src="{{ game.image }}" alt="{{ game.game }}" onerror="this.parentElement.innerHTML='🎮'">
-                {% else %} 🎮 {% endif %}
-                </div>
-                <div class="game-info">
-                    <div class="game-name" title="{{ game.game }}">{{ game.game }}</div>
-                    <div class="game-time">{{ game.minutes }} mins</div>
-                </div>
+                  <img src="{{ game.image }}" alt="{{ game.game }}" class="h-full w-full object-cover" onerror="this.parentElement.innerHTML='🎮'">
+                {% else %}
+                  🎮
+                {% endif %}
+              </div>
+              <div class="p-3 space-y-1">
+                <h3 class="font-semibold text-sm text-balance">{{ game.game }}</h3>
+                <p class="text-2xl font-bold text-primary">{{ game.minutes }}m</p>
+              </div>
             </div>
             {% endfor %}
+          </div>
         </div>
-        {% endif %}
+      </div>
+      {% endif %}
 
-        {% if games %}
-        <div class="section-title">📈 All Games Breakdown</div>
-        <div class="games-breakdown">
-        {% for game_name, stats in games.items() %}
-            <div class="game-breakdown-item">
-                <div class="game-breakdown-name">{{ game_name }}</div>
-                <div class="game-breakdown-times">
-                    <span>Daily: {{ stats.daily }}m</span>
-                    <span>Weekly: {{ stats.weekly }}m</span>
-                    <span>Monthly: {{ stats.monthly }}m</span>
+      {% if games %}
+      <div class="border border-border/40 bg-card rounded-2xl shadow-none">
+        <div class="p-6 pb-4">
+          <h2 class="flex items-center gap-2 text-lg font-semibold">
+            <svg class="h-5 w-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+            All Games Breakdown
+          </h2>
+        </div>
+        <div class="px-6 pb-6">
+          <div class="space-y-3">
+            {% for game_name, stats in games.items() %}
+            <div class="bg-secondary/30 rounded-xl p-4 border border-border/20">
+              <div class="flex items-center justify-between flex-wrap gap-3">
+                <div class="flex items-center gap-3">
+                  <svg class="h-5 w-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                  <span class="font-medium">{{ game_name }}</span>
                 </div>
+                <div class="flex items-center gap-3 text-sm flex-wrap">
+                  <span class="bg-secondary/80 text-secondary-foreground font-medium text-xs px-2.5 py-0.5 rounded-full">Daily: {{ stats.daily }}m</span>
+                  <span class="bg-secondary/80 text-secondary-foreground font-medium text-xs px-2.5 py-0.5 rounded-full">Weekly: {{ stats.weekly }}m</span>
+                  <span class="bg-secondary/80 text-secondary-foreground font-medium text-xs px-2.5 py-0.5 rounded-full">Monthly: {{ stats.monthly }}m</span>
+                </div>
+              </div>
             </div>
-        {% endfor %}
+            {% endfor %}
+          </div>
         </div>
-        {% endif %}
+      </div>
+      {% endif %}
 
-        {% if not top_games and not games %}
-        <div style="text-align: center; padding: 40px; color: #888;">
-            <p>No game statistics available yet. Start playing to see your stats!</p>
-        </div>
-        {% endif %}
+      {% if not top_games and not games %}
+      <div class="text-center p-10 text-muted-foreground">No game statistics available yet. Start playing to see your stats!</div>
+      {% endif %}
     </div>
+  </div>
 </body>
 </html>
 

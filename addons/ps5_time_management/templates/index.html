@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PS5 Time Management</title>
+  <link rel="stylesheet" href="./globals.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .toggle-switch { position: relative; display: inline-flex; height: 1.5rem; width: 2.75rem; align-items: center; border-radius: 9999px; transition: background-color 0.2s; cursor: pointer; }
+    .toggle-switch.active { background-color: rgb(96 165 250); }
+    .toggle-switch:not(.active) { background-color: rgba(255, 255, 255, 0.2); }
+    .toggle-slider { display: inline-block; height: 1rem; width: 1rem; transform: translateX(0.25rem); border-radius: 9999px; background-color: white; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1); transition: transform 0.2s; }
+    .toggle-switch.active .toggle-slider { transform: translateX(1.5rem); }
+  </style>
+</head>
+<body class="min-h-screen bg-background text-foreground">
+  <div class="min-h-screen bg-background p-4 md:p-6 lg:p-8">
+    <div class="mx-auto max-w-7xl space-y-6">
+      <div class="flex items-center gap-3">
+        <svg class="h-8 w-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <h1 class="text-3xl font-bold tracking-tight">PS5 Time Management</h1>
+      </div>
+      <p class="text-muted-foreground">Welcome to the PS5 Time Management add-on!</p>
+
+      <div class="border border-border/40 bg-card rounded-2xl shadow-none p-6">
+        <div class="pb-3">
+          <h2 class="flex items-center gap-2 text-lg font-semibold">
+            <svg class="h-5 w-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            Console Status
+          </h2>
+        </div>
+        <div class="space-y-2">
+          <div class="flex items-center gap-2">
+            <span id="status-badge" class="bg-secondary/80 text-secondary-foreground font-medium text-xs px-2.5 py-0.5 rounded-full">Loading…</span>
+          </div>
+          <div class="text-xs text-muted-foreground font-mono">Last update: <span id="last-update">—</span></div>
+        </div>
+      </div>
+
+      <div class="space-y-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xl font-semibold tracking-tight">Users</h2>
+          <button onclick="loadUsers()" class="inline-flex items-center gap-2 rounded-full bg-primary hover:bg-primary/90 px-4 py-2 text-sm font-medium text-primary-foreground">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            Refresh
+          </button>
+        </div>
+        <div id="users-container" class="grid gap-4"></div>
+        <div id="loading" class="text-sm text-muted-foreground">Loading users…</div>
+        <div id="error" class="hidden text-sm text-destructive"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function badgeFor(power) {
+      if (!power) return 'bg-zinc-700 text-white';
+      power = String(power).toUpperCase();
+      if (power === 'AWAKE') return 'bg-green-600 text-white';
+      if (power === 'STANDBY') return 'bg-zinc-600 text-white';
+      return 'bg-zinc-700 text-white';
+    }
+    async function fetchStatus(){
+      try {
+        const r = await fetch('./api/status');
+        const s = await r.json();
+        const badge = document.getElementById('status-badge');
+        const last = document.getElementById('last-update');
+        const power = (s && s.power) || 'UNKNOWN';
+        badge.className = 'font-medium text-xs px-2.5 py-0.5 rounded-full ' + badgeFor(power);
+        badge.textContent = power;
+        last.textContent = (s && s.last_update) || new Date().toISOString();
+      } catch(e){ /* ignore */ }
+    }
+
+    function cardHtml(user, stats, allowed){
+      return `
+      <div class=\"border border-border/40 bg-card rounded-2xl shadow-none\">
+        <div class=\"p-6 pb-3\">
+          <div class=\"flex items-center justify-between\">
+            <h3 class=\"text-lg font-semibold\">${user}</h3>
+            <div class=\"flex items-center gap-3\">
+              <span class=\"text-sm text-muted-foreground\">Access</span>
+              <button class=\"toggle-switch ${allowed ? 'active' : ''}\" onclick=\"toggleAccess(this, '${user}')\" role=\"switch\" aria-checked=\"${!!allowed}\"><span class=\"toggle-slider\"></span></button>
+            </div>
+          </div>
+        </div>
+        <div class=\"px-6 pb-6 space-y-3\">
+          <div class=\"grid grid-cols-2 md:grid-cols-4 gap-2\">
+            <div class=\"bg-secondary/30 rounded-xl p-3 border border-border/20\"><div class=\"text-xs font-medium text-muted-foreground mb-1\">Daily</div><p class=\"text-xl font-bold text-foreground\">${stats.daily}m</p></div>
+            <div class=\"bg-secondary/30 rounded-xl p-3 border border-border/20\"><div class=\"text-xs font-medium text-muted-foreground mb-1\">Weekly</div><p class=\"text-xl font-bold text-foreground\">${stats.weekly}m</p></div>
+            <div class=\"bg-secondary/30 rounded-xl p-3 border border-border/20\"><div class=\"text-xs font-medium text-muted-foreground mb-1\">Monthly</div><p class=\"text-xl font-bold text-foreground\">${stats.monthly}m</p></div>
+            <div class=\"bg-secondary/30 rounded-xl p-3 border border-border/20\"><div class=\"text-xs font-medium text-muted-foreground mb-1\">Remaining</div><p class=\"text-xl font-bold text-chart-3\">${stats.remaining || 0}m</p></div>
+          </div>
+          <div class=\"flex flex-wrap gap-2 pt-1\">
+            <button onclick=\"refreshUser('${user}')\" class=\"inline-flex items-center gap-1.5 rounded-full bg-secondary/80 hover:bg-secondary text-xs h-8 px-3 font-medium\">Refresh</button>
+            <a href=\"./stats/${user}\" class=\"inline-flex items-center gap-1.5 rounded-full bg-primary hover:bg-primary/90 text-xs h-8 px-3 font-medium text-primary-foreground\">View Stats</a>
+            <button onclick=\"clearUserStats('${user}')\" class=\"inline-flex items-center gap-1.5 rounded-full bg-destructive hover:bg-destructive/90 text-xs h-8 px-3 font-medium text-destructive-foreground\">Clear</button>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    async function loadUsers(){
+      const cont = document.getElementById('users-container');
+      const loading = document.getElementById('loading');
+      const error = document.getElementById('error');
+      if (loading) loading.classList.remove('hidden');
+      if (error) error.classList.add('hidden');
+      cont.innerHTML='';
+      try{
+        const r = await fetch('./api/users'); const data = await r.json();
+        const users = data.users || [];
+        for (const u of users){
+          const [statsResp, accessResp] = await Promise.all([
+            fetch(`./api/users/${u}/stats`),
+            fetch(`./api/access/${u}`)
+          ]);
+          const stats = await statsResp.json();
+          const access = await accessResp.json();
+          cont.insertAdjacentHTML('beforeend', cardHtml(u, stats, !!access.allowed));
+        }
+      }catch(e){ if (error){ error.textContent = 'Failed to load users'; error.classList.remove('hidden'); } }
+      finally{ if (loading) loading.classList.add('hidden'); }
+    }
+
+    async function toggleAccess(btn, user){
+      btn.classList.toggle('active');
+      const allowed = btn.classList.contains('active');
+      btn.setAttribute('aria-checked', allowed);
+      try{ await fetch(`./api/access/${user}`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({allowed})}); }catch(e){}
+    }
+    async function refreshUser(user){ try{ await fetch(`./api/refresh/${user}`, {method:'POST'}); loadUsers(); }catch(e){} }
+    async function clearUserStats(user){ if(!confirm(`Clear all stats for ${user}?`)) return; try{ await fetch(`./api/cleanup/${user}`, {method:'POST'}); loadUsers(); }catch(e){} }
+
+    fetchStatus(); loadUsers(); setInterval(fetchStatus, 15000);
+  </script>
+</body>
+</html>
+
+
