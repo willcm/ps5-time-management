@@ -47,6 +47,8 @@ def setup_logging(log_level='INFO'):
 
 # Create logger - will be reconfigured with proper level after config load
 logger = setup_logging()
+# Explicitly register date adapter to avoid Python 3.12 deprecation warnings
+sqlite3.register_adapter(datetime.date, lambda d: d.isoformat())
 
 # Initialize Flask app
 app = Flask(__name__, template_folder='templates')
@@ -335,7 +337,7 @@ class PS5TimeManager:
                  (user, game, start_time, end_time, int(duration), session['ps5_id']))
         
         # Update daily stats - use proper UPSERT logic
-        today = start_time.date()
+        today = start_time.date().isoformat()
         
         # First, try to get existing stats
         c.execute('''SELECT total_minutes, session_count FROM user_stats 
@@ -392,7 +394,7 @@ class PS5TimeManager:
         """Get total time played today by user (including active sessions)"""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        today = datetime.now().date()
+        today = datetime.now().date().isoformat()
         
         # Get completed sessions from database
         c.execute('''SELECT total_minutes FROM user_stats 
@@ -426,7 +428,7 @@ class PS5TimeManager:
         
         # Calculate week start (Monday)
         today = datetime.now().date()
-        week_start = today - timedelta(days=today.weekday())
+        week_start = (today - timedelta(days=today.weekday())).isoformat()
         
         # Get completed sessions from database for this week
         c.execute('''SELECT SUM(total_minutes) FROM user_stats 
@@ -457,7 +459,7 @@ class PS5TimeManager:
         
         # Calculate month start
         today = datetime.now().date()
-        month_start = today.replace(day=1)
+        month_start = today.replace(day=1).isoformat()
         
         # Get completed sessions from database for this month
         c.execute('''SELECT SUM(total_minutes) FROM user_stats 
@@ -485,7 +487,7 @@ class PS5TimeManager:
         """Get top games played by user in the last N days, with images when available"""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        start_date = (datetime.now() - timedelta(days=days)).date()
+        start_date = (datetime.now() - timedelta(days=days)).date().isoformat()
         
         c.execute('''SELECT game, SUM(minutes_played) as total 
                      FROM game_stats 
@@ -526,7 +528,7 @@ class PS5TimeManager:
         """Get time played for a specific game today (including active sessions)"""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        today = datetime.now().date()
+        today = datetime.now().date().isoformat()
         
         # Get completed sessions from database
         c.execute('''SELECT SUM(minutes_played) FROM game_stats 
@@ -555,7 +557,7 @@ class PS5TimeManager:
         # Calculate week start (Monday)
         today = datetime.now().date()
         days_since_monday = today.weekday()
-        week_start = today - timedelta(days=days_since_monday)
+        week_start = (today - timedelta(days=days_since_monday)).isoformat()
         
         # Get completed sessions from database
         c.execute('''SELECT SUM(minutes_played) FROM game_stats 
@@ -583,7 +585,7 @@ class PS5TimeManager:
         
         # Calculate month start
         today = datetime.now().date()
-        month_start = today.replace(day=1)
+        month_start = today.replace(day=1).isoformat()
         
         # Get completed sessions from database
         c.execute('''SELECT SUM(minutes_played) FROM game_stats 
