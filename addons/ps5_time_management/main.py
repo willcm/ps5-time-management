@@ -98,6 +98,19 @@ def start_shutdown_warning(user: str, ps5_id: str):
         Timer(60.0, enforce).start()
     except Exception as e:
         logger.error(f"Failed to start shutdown warning for {user}: {e}")
+
+def enforce_standby(ps5_id: str, user: str | None = None):
+    """Immediately put console into standby via ps5-mqtt and clear warning for user if provided."""
+    try:
+        if user:
+            user_warning_until.pop(user, None)
+            if mqtt_connected and mqtt_client is not None:
+                mqtt_client.publish(f"ps5_time_management/{user}/warning", 'OFF', retain=True)
+        if mqtt_connected and mqtt_client is not None:
+            mqtt_client.publish(f"{config.get('mqtt_topic_prefix','ps5-mqtt')}/{ps5_id}/set/power", 'STANDBY')
+        logger.info(f"Enforced immediate standby for PS5 {ps5_id}{' (user '+user+')' if user else ''}")
+    except Exception as e:
+        logger.error(f"Failed to enforce standby: {e}")
 published_sensors = set()  # Track which sensors we've published via MQTT Discovery
 current_session = {
     'user': None,
@@ -876,6 +889,15 @@ def handle_device_update(ps5_id, data):
         for player in players:
             if player:
                 game_name = data.get('title_name', 'Unknown Game')
+                # If a shutdown warning is active for this user, enforce immediately
+                try:
+                    expiry = user_warning_until.get(player)
+                    if expiry and datetime.now() < expiry:
+                        logger.warning(f"Shutdown warning active for {player}; enforcing immediate standby")
+                        enforce_standby(ps5_id, player)
+                        continue
+                except Exception:
+                    pass
                 # Attempt to cache game image proactively
                 try:
                     if data.get('title_image') and game_name:
