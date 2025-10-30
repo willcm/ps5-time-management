@@ -1706,10 +1706,6 @@ def index():
             body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
             .container { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
             h1 { color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px; }
-            .link { display: block; margin: 15px 0; padding: 10px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; }
-            .link:hover { background: #0056b3; }
-            .api-link { background: #28a745; }
-            .api-link:hover { background: #218838; }
             .status-card { display: flex; gap: 16px; align-items: center; background: #ffffff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 6px rgba(0,0,0,0.08); margin: 16px 0 24px; }
             .status-info { flex: 1; }
             .status-title { font-size: 1.1em; margin: 0 0 8px 0; color: #111; }
@@ -1721,6 +1717,28 @@ def index():
             .game-art { width: 92px; height: 92px; border-radius: 8px; object-fit: cover; background: #eee; }
             .muted { color: #666; }
             .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+
+            /* User management styles (inlined) */
+            .refresh-btn { background: #28a745; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin: 10px 0 20px; }
+            .refresh-btn:hover { background: #218838; }
+            .user-card { border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin: 20px 0; background: #fafafa; }
+            .user-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+            .user-name { font-size: 1.3em; font-weight: bold; color: #333; }
+            .actions { display: flex; gap: 10px; }
+            .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9em; transition: background-color 0.2s; }
+            .btn-primary { background: #007bff; color: white; }
+            .btn-primary:hover { background: #0056b3; }
+            .btn-warning { background: #ffc107; color: #212529; }
+            .btn-warning:hover { background: #e0a800; }
+            .btn-danger { background: #dc3545; color: white; }
+            .btn-danger:hover { background: #c82333; }
+            .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 15px 0; }
+            .stat-card { background: white; border: 1px solid #e0e0e0; border-radius: 6px; padding: 15px; text-align: center; }
+            .stat-label { font-size: 0.9em; color: #666; margin-bottom: 5px; }
+            .stat-value { font-size: 1.5em; font-weight: bold; color: #007bff; }
+            .loading { text-align: center; padding: 10px; color: #666; }
+            .error { background: #f8d7da; color: #721c24; padding: 10px; border-radius: 4px; margin: 10px 0; display:none; }
+            .success { background: #d4edda; color: #155724; padding: 10px; border-radius: 4px; margin: 10px 0; display:none; }
         </style>
     </head>
     <body>
@@ -1740,15 +1758,13 @@ def index():
                     <div class="status-line muted"><span class="mono" id="last-update">—</span></div>
                 </div>
             </div>
-            
-            <h2>Web Interface</h2>
-            <a href="./user-management" class="link">👥 User Management</a>
-            <a href="./test" class="link">🧪 Test Route</a>
-            
-            <h2>API Endpoints</h2>
-            <a href="./api/users/view" class="link api-link">📋 List Users</a>
-            <a href="./api/debug/Thomas" class="link api-link">🔍 Debug User (Thomas)</a>
-            <a href="./api/stats/daily/Thomas" class="link api-link">📊 Daily Stats (Thomas)</a>
+
+            <h2>Users</h2>
+            <button class="refresh-btn" onclick="loadUsers()">🔄 Refresh User List</button>
+            <div id="loading" class="loading">Loading users...</div>
+            <div id="error" class="error"></div>
+            <div id="success" class="success"></div>
+            <div id="users-container"></div>
         </div>
         <script>
             function fmtMins(mins){ return mins + ' min' + (mins === 1 ? '' : 's'); }
@@ -1820,6 +1836,113 @@ def index():
             }
             fetchStatus();
             setInterval(fetchStatus, 15000);
+
+            // ==== Inlined user management logic ====
+            async function loadUsers() {
+                const loading = document.getElementById('loading');
+                const error = document.getElementById('error');
+                const success = document.getElementById('success');
+                const container = document.getElementById('users-container');
+                loading.style.display = 'block';
+                error.style.display = 'none';
+                success.style.display = 'none';
+                container.innerHTML = '';
+                try {
+                    const response = await fetch('./api/users');
+                    const data = await response.json();
+                    if (data.users && data.users.length > 0) {
+                        container.innerHTML = data.users.map(user => createUserCard(user)).join('');
+                        for (const user of data.users) {
+                            await loadUserStats(user);
+                        }
+                    } else {
+                        container.innerHTML = '<div class="loading">No users discovered yet. Start playing on your PS5 to discover users!</div>';
+                    }
+                    loading.style.display = 'none';
+                } catch (err) {
+                    loading.style.display = 'none';
+                    error.style.display = 'block';
+                    error.textContent = 'Error loading users: ' + err.message;
+                }
+            }
+
+            function createUserCard(user) {
+                return `
+                    <div class="user-card" id="user-${user}">
+                        <div class="user-header">
+                            <div class="user-name">👤 ${user}</div>
+                            <div class="actions">
+                                <label style="display:flex;align-items:center;gap:8px;">
+                                    <input type="checkbox" id="${user}-access" onchange="toggleAccess('${user}', this.checked)">
+                                    <span>Access Allowed</span>
+                                </label>
+                                <button class="btn btn-primary" onclick="refreshUser('${user}')">🔄 Refresh</button>
+                                <button class="btn btn-warning" onclick="location.href='./stats/${user}'">📊 View Stats</button>
+                                <button class="btn btn-danger" onclick="clearUserStats('${user}')">🗑️ Clear Stats</button>
+                            </div>
+                        </div>
+                        <div class="stats-grid">
+                            <div class="stat-card"><div class="stat-label">Daily Playtime</div><div class="stat-value" id="${user}-daily">-</div></div>
+                            <div class="stat-card"><div class="stat-label">Weekly Playtime</div><div class="stat-value" id="${user}-weekly">-</div></div>
+                            <div class="stat-card"><div class="stat-label">Monthly Playtime</div><div class="stat-value" id="${user}-monthly">-</div></div>
+                            <div class="stat-card"><div class="stat-label">Time Remaining</div><div class="stat-value" id="${user}-remaining">-</div></div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            async function loadUserStats(user) {
+                try {
+                    const response = await fetch(`./api/users/${user}/stats`);
+                    const data = await response.json();
+                    if (response.ok) {
+                        updateUserStats(user, { daily: data.daily, weekly: data.weekly, monthly: data.monthly, remaining: data.remaining || 120 });
+                        const accessRes = await fetch(`./api/access/${user}`);
+                        const accessData = await accessRes.json();
+                        if (accessRes.ok) {
+                            const chk = document.getElementById(`${user}-access`);
+                            if (chk) chk.checked = !!accessData.allowed;
+                        }
+                    }
+                } catch (err) { /* ignore */ }
+            }
+
+            async function refreshUser(user) {
+                try {
+                    const response = await fetch(`./api/refresh/${user}`, { method: 'POST' });
+                    const data = await response.json();
+                    if (response.ok) {
+                        updateUserStats(user, data.current_values);
+                    }
+                } catch (err) {}
+            }
+
+            async function clearUserStats(user) {
+                if (!confirm(`Are you sure you want to clear ALL statistics for ${user}? This cannot be undone!`)) return;
+                try {
+                    const response = await fetch(`./api/cleanup/${user}`, { method: 'POST' });
+                    if (response.ok) {
+                        updateUserStats(user, { daily: 0, weekly: 0, monthly: 0, remaining: 120 });
+                    }
+                } catch (err) {}
+            }
+
+            async function toggleAccess(user, allowed){
+                try {
+                    await fetch(`./api/access/${user}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ allowed }) });
+                } catch (e) {}
+            }
+
+            function updateUserStats(user, stats) {
+                document.getElementById(`${user}-daily`).textContent = `${stats.daily}m`;
+                document.getElementById(`${user}-weekly`).textContent = `${stats.weekly}m`;
+                document.getElementById(`${user}-monthly`).textContent = `${stats.monthly}m`;
+                document.getElementById(`${user}-remaining`).textContent = `${stats.remaining || (120 - stats.daily)}m`;
+            }
+
+            // initial load
+            loadUsers();
+            setInterval(loadUsers, 30000);
         </script>
     </body>
     </html>
