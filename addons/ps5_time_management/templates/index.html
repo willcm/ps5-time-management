@@ -25,16 +25,18 @@
 
       <div class="bg-card rounded-2xl shadow-none p-6">
         <div class="pb-3">
-          <h2 class="flex items-center gap-2 text-lg font-semibold">
-            <svg class="h-5 w-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-            Console Status
+          <h2 class="flex items-center justify-between text-lg font-semibold">
+            <span class="flex items-center gap-2">
+              <svg class="h-5 w-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+              Console Status
+            </span>
+            <span id="status-badge" class="bg-secondary/80 text-secondary-foreground font-medium text-xs px-2.5 py-0.5 rounded-full">Loading…</span>
           </h2>
         </div>
         <div class="flex items-center gap-4">
           <img id="game-cover" class="hidden h-16 w-16 rounded-lg object-cover bg-muted" alt="Game" />
           <div class="space-y-1">
             <div class="flex items-center gap-2">
-              <span id="status-badge" class="bg-secondary/80 text-secondary-foreground font-medium text-xs px-2.5 py-0.5 rounded-full">Loading…</span>
               <div id="players-line" class="text-sm text-foreground hidden"></div>
               <div id="game-line" class="text-sm text-foreground hidden"></div>
             </div>
