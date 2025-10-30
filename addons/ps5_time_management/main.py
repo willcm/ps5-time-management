@@ -609,6 +609,15 @@ class PS5TimeManager:
             cached = self.get_cached_game_image(game_name)
             if cached:
                 logger.debug(f"Using cached cover for '{game_name}': {cached}")
+                # Verify file actually exists on disk
+                try:
+                    full_path = os.path.join('/data/game_images', cached)
+                    if os.path.exists(full_path):
+                        logger.debug(f"Verified cached cover exists: {full_path}")
+                    else:
+                        logger.warning(f"Cached cover record found but file missing: {full_path}")
+                except Exception:
+                    pass
                 game_image = f"./images/{cached}"
             else:
                 # Try from current status and cache it (fuzzy match)
@@ -1333,7 +1342,13 @@ def serve_cached_image(filename):
     """Serve cached game images from /data/game_images"""
     try:
         directory = '/data/game_images'
-        return send_from_directory(directory, filename)
+        full_path = os.path.join(directory, filename)
+        if os.path.exists(full_path):
+            logger.debug(f"Serving cached image: {full_path}")
+            return send_from_directory(directory, filename)
+        else:
+            logger.warning(f"Requested image not found on disk: {full_path}")
+            return "", 404
     except Exception as e:
         logger.error(f"Image serve error for {filename}: {e}")
         return "", 404
