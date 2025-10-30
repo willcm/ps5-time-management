@@ -68,6 +68,8 @@ latest_device_status = {
     'title_image': None,
     'last_update': None,
 }
+mqtt_connected = False
+debug_user_name = None
 published_sensors = set()  # Track which sensors we've published via MQTT Discovery
 current_session = {
     'user': None,
@@ -747,6 +749,8 @@ def on_connect(client, userdata, flags, reason_code, properties):
     
     if reason_code == 0:
         logger.info("Connected to MQTT broker successfully")
+        global mqtt_connected
+        mqtt_connected = True
         
         # Discover users from ps5-mqtt configuration
         discover_users_from_ps5_mqtt()
@@ -758,6 +762,13 @@ def on_connect(client, userdata, flags, reason_code, properties):
         client.subscribe(subscribe_topic)
         
         logger.info(f"Subscribed to MQTT topics with prefix: {topic_prefix}")
+        # Publish discovery for all known users now that we're connected
+        try:
+            if discovered_users:
+                for user in list(discovered_users):
+                    publish_user_sensors(user)
+        except Exception as e:
+            logger.warning(f"Failed to publish discovery on connect: {e}")
     else:
         logger.error(f"Failed to connect to MQTT broker with code {reason_code}")
 
@@ -771,7 +782,9 @@ def on_message(client, userdata, msg):
     
     try:
         data = json.loads(payload)
-        logger.info(f"Parsed MQTT data: {data}")
+        # Only verbose-log commandless device updates
+        if not msg.topic.endswith('/command'):
+            logger.info(f"Parsed MQTT data: {data}")
         
         # Parse topic to get PS5 ID
         parts = topic.split('/')
@@ -784,7 +797,10 @@ def on_message(client, userdata, msg):
                 logger.info(f"Processing as device update for PS5 {ps5_id}")
                 handle_device_update(ps5_id, data)
             else:
-                logger.info(f"Topic doesn't match expected pattern. Parts: {parts}")
+                # Ignore our own command subtopic
+                if len(parts) >= 3 and parts[2] == 'command':
+                    return
+                logger.debug(f"Ignoring non-device topic: {parts}")
                 
     except json.JSONDecodeError:
         logger.error(f"Failed to parse JSON from topic {topic}, payload: {payload}")
@@ -858,7 +874,10 @@ def handle_device_update(ps5_id, data):
 
                 session_id = time_manager.start_session(player, game_name, ps5_id)
                 if session_id:
-                    logger.info(f"Started session for {player} playing {game_name} (ID: {session_id})")
+                    if debug_user_name and debug_user_name == player:
+                        logger.info(f"[DEBUG:{player}] Session started (ID: {session_id}) for game {game_name}")
+                    else:
+                        logger.info(f"Started session for {player} playing {game_name} (ID: {session_id})")
                 # else: duplicate suppressed (logged in start_session)
     elif activity in ['idle', 'none']:
         # End sessions for this PS5
@@ -876,11 +895,15 @@ def handle_device_update(ps5_id, data):
                 time_manager.end_session(session_id)
                 logger.info(f"Ended session due to PS5 {ps5_id} going to standby")
     
-    # Update sensor states for all discovered users
-    update_all_sensor_states()
+    # Update sensor states for all discovered users (only if MQTT is ready)
+    if mqtt_connected and mqtt_client is not None:
+        update_all_sensor_states()
 
 def publish_user_sensors(user):
     """Publish MQTT Discovery sensors for a user"""
+    if not mqtt_connected or mqtt_client is None:
+        logger.debug(f"Deferring discovery publish for {user} until MQTT connected")
+        return
     discovery_topic = config.get('mqtt', {}).get('discovery_topic', 'homeassistant')
     
     # Sensor configurations for each user
@@ -969,6 +992,9 @@ def update_all_sensor_states():
 def update_user_sensor_states(user):
     """Update MQTT sensor states for a specific user"""
     try:
+        if not mqtt_connected or mqtt_client is None:
+            logger.debug(f"Deferring state publish for {user} until MQTT connected")
+            return
         # Get user stats using the correct methods
         daily_time = time_manager.get_user_time_today(user)
         weekly_time = time_manager.get_user_weekly_time(user)
@@ -1202,6 +1228,20 @@ def user_access(user):
         except Exception as e:
             logger.error(f"Failed to update access for {user}: {e}")
             return jsonify({'error': str(e)}), 400
+
+@app.route('/api/debug_user', methods=['GET', 'POST'])
+def api_debug_user():
+    """Get or set the per-user debug filter."""
+    global debug_user_name
+    if request.method == 'GET':
+        return jsonify({'debug_user': debug_user_name})
+    try:
+        data = request.get_json(force=True) or {}
+        debug_user_name = data.get('debug_user') or None
+        logger.info(f"Per-user debug set to: {debug_user_name}")
+        return jsonify({'debug_user': debug_user_name})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
 
 @app.route('/api/users/view')
 def view_users():
@@ -1814,6 +1854,9 @@ def load_config():
             logger = setup_logging(log_level)
             logger.info(f"Configuration loaded from {config_path}")
             logger.debug(f"Full configuration: {json.dumps(config, indent=2)}")
+            # Set per-user debug if provided
+            global debug_user_name
+            debug_user_name = config.get('debug_user')
             
             # Handle clear_all_stats option
             if config.get('clear_all_stats', False):
@@ -1914,14 +1957,13 @@ def main():
     db_path = config.get('database_path', '/data/ps5_time_management.db')
     time_manager = PS5TimeManager(db_path)
     
-    # Load any previously persisted users so sensors exist without waiting for MQTT
+    # Load any previously persisted users (defers publishing until MQTT is connected)
     try:
         persisted_users = time_manager.load_users()
         if persisted_users:
             for user in persisted_users:
                 if user not in discovered_users:
                     discovered_users.add(user)
-                    publish_user_sensors(user)
             logger.info(f"Loaded persisted users from DB: {persisted_users}")
         else:
             logger.info("No persisted users found in DB yet")
