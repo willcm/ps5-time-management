@@ -1272,6 +1272,32 @@ def api_debug_user():
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
+@app.route('/api/republish_discovery', methods=['POST'])
+def api_republish_all_discovery():
+    """Republish MQTT discovery for all known users (useful after updates)."""
+    if not mqtt_connected or mqtt_client is None:
+        return jsonify({'error': 'MQTT not connected'}), 503
+    count = 0
+    for user in list(discovered_users):
+        try:
+            publish_user_sensors(user)
+            count += 1
+        except Exception as e:
+            logger.warning(f"Failed to republish discovery for {user}: {e}")
+    return jsonify({'republished': count, 'users': list(discovered_users)})
+
+@app.route('/api/republish_discovery/<user>', methods=['POST'])
+def api_republish_user_discovery(user):
+    if not mqtt_connected or mqtt_client is None:
+        return jsonify({'error': 'MQTT not connected'}), 503
+    if user not in discovered_users:
+        return jsonify({'error': 'User not found'}), 404
+    try:
+        publish_user_sensors(user)
+        return jsonify({'republished': 1, 'user': user})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/users/view')
 def view_users():
     """View users in a simple HTML page"""
