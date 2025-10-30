@@ -16,7 +16,7 @@ from flask import Flask, jsonify, request, render_template
 from flask_cors import CORS
 import logging
 from flask import send_from_directory
-import requests
+from urllib.request import urlopen, Request
 
 # Configure logging - will be updated after config is loaded
 def setup_logging(log_level='INFO'):
@@ -276,10 +276,13 @@ class PS5TimeManager:
                 return filename
 
             # Download and save
-            resp = requests.get(image_url, timeout=10)
-            if resp.status_code == 200:
-                with open(filepath, 'wb') as f:
-                    f.write(resp.content)
+            # Use stdlib to avoid external dependency
+            req = Request(image_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urlopen(req, timeout=10) as resp:
+                if resp.status == 200:
+                    content = resp.read()
+                    with open(filepath, 'wb') as f:
+                        f.write(content)
                 conn = sqlite3.connect(self.db_path)
                 c = conn.cursor()
                 c.execute('''INSERT INTO game_images (game, filename) VALUES (?, ?) 
