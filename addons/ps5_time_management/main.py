@@ -618,7 +618,7 @@ class PS5TimeManager:
                         logger.warning(f"Cached cover record found but file missing: {full_path}")
                 except Exception:
                     pass
-                game_image = f"./images/{cached}"
+                game_image = f"/images/{cached}"
             else:
                 # Try from current status and cache it (fuzzy match)
                 try:
@@ -628,7 +628,7 @@ class PS5TimeManager:
                             fname = self.cache_game_image(game_name, current_image)
                             if fname:
                                 logger.info(f"Cached from live status for '{game_name}' -> {fname}")
-                                game_image = f"./images/{fname}"
+                                game_image = f"/images/{fname}"
                 except Exception:
                     pass
             
