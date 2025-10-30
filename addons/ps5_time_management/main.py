@@ -454,7 +454,8 @@ class PS5TimeManager:
         
         # Calculate week start (Monday)
         today = datetime.now().date()
-        week_start = (today - timedelta(days=today.weekday())).isoformat()
+        week_start_date = today - timedelta(days=today.weekday())
+        week_start = week_start_date.isoformat()
         
         # Get completed sessions from database for this week
         c.execute('''SELECT SUM(total_minutes) FROM user_stats 
@@ -470,7 +471,7 @@ class PS5TimeManager:
         for session_id, session in self.active_sessions.items():
             if session['user'] == user:
                 session_date = session['start_time'].date()
-                if session_date >= week_start:  # Only count sessions from this week
+                if session_date >= week_start_date:  # Only count sessions from this week
                     elapsed = (datetime.now() - session['start_time']).total_seconds()
                     active_time += elapsed / 60  # Convert to minutes
         
@@ -485,7 +486,8 @@ class PS5TimeManager:
         
         # Calculate month start
         today = datetime.now().date()
-        month_start = today.replace(day=1).isoformat()
+        month_start_date = today.replace(day=1)
+        month_start = month_start_date.isoformat()
         
         # Get completed sessions from database for this month
         c.execute('''SELECT SUM(total_minutes) FROM user_stats 
@@ -501,7 +503,7 @@ class PS5TimeManager:
         for session_id, session in self.active_sessions.items():
             if session['user'] == user:
                 session_date = session['start_time'].date()
-                if session_date >= month_start:  # Only count sessions from this month
+                if session_date >= month_start_date:  # Only count sessions from this month
                     elapsed = (datetime.now() - session['start_time']).total_seconds()
                     active_time += elapsed / 60  # Convert to minutes
         
