@@ -939,12 +939,12 @@ def handle_device_update(ps5_id, data):
                 # Policy: immediate enforcement if manual override or limit==0.
                 # Otherwise, if a warning is active due to time elapsed, let the countdown continue.
                 try:
-                    // Manual override path
+                    # Manual override path
                     if not time_manager.get_user_access(player):
                         logger.warning(f"Access disabled for {player}; applying shutdown policy")
                         apply_shutdown_policy(player, ps5_id, reason='access_disabled')
                         continue
-                    // Daily limit exhausted now (including zero)
+                    # Daily limit exhausted now (including zero)
                     lim = time_manager.get_user_limit(player)
                     if lim is not None:
                         current = time_manager.get_user_time_today(player)
