@@ -781,13 +781,15 @@ def on_message(client, userdata, msg):
     logger.info(f"MQTT MESSAGE RECEIVED - Topic: {topic}, Payload: {payload}")
     
     try:
-        data = json.loads(payload)
-        # Only verbose-log commandless device updates
-        if not msg.topic.endswith('/command'):
-            logger.info(f"Parsed MQTT data: {data}")
-        
-        # Parse topic to get PS5 ID
+        # Parse topic to get PS5 ID and early-ignore non-JSON topics
         parts = topic.split('/')
+        # Ignore our own command/set subtopics before attempting JSON parse
+        if len(parts) >= 3 and parts[2] in ('command', 'set'):
+            return
+        
+        data = json.loads(payload)
+        logger.info(f"Parsed MQTT data: {data}")
+        
         if len(parts) >= 2:
             ps5_id = parts[1]
             logger.info(f"Extracted PS5 ID: {ps5_id}")
@@ -797,9 +799,6 @@ def on_message(client, userdata, msg):
                 logger.info(f"Processing as device update for PS5 {ps5_id}")
                 handle_device_update(ps5_id, data)
             else:
-                # Ignore our own command/set subtopics
-                if len(parts) >= 3 and parts[2] in ('command', 'set'):
-                    return
                 logger.debug(f"Ignoring non-device topic: {parts}")
                 
     except json.JSONDecodeError:
