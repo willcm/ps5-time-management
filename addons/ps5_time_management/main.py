@@ -203,6 +203,11 @@ class PS5TimeManager:
                       timestamp TIMESTAMP,
                       read BOOLEAN DEFAULT 0)''')
         
+        # User access table - whether access is allowed
+        c.execute('''CREATE TABLE IF NOT EXISTS user_access
+                     (user TEXT PRIMARY KEY,
+                      allowed BOOLEAN DEFAULT 1)''')
+        
         # Users table - persist discovered users so we don't depend on live discovery
         c.execute('''CREATE TABLE IF NOT EXISTS users
                      (user TEXT PRIMARY KEY)''')
@@ -588,6 +593,29 @@ class PS5TimeManager:
         conn.close()
         
         logger.info(f"Set limit for user {user}: {daily_minutes} minutes/day")
+
+    def get_user_access(self, user):
+        """Return whether the specified user's access is allowed (default True)."""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute('SELECT allowed FROM user_access WHERE user=?', (user,))
+        row = c.fetchone()
+        conn.close()
+        if row is None:
+            return True
+        return bool(row[0])
+
+    def set_user_access(self, user, allowed):
+        """Set access allowed flag for a user."""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute('''INSERT INTO user_access (user, allowed)
+                     VALUES (?, ?)
+                     ON CONFLICT(user) DO UPDATE SET allowed=excluded.allowed''',
+                  (user, 1 if allowed else 0))
+        conn.commit()
+        conn.close()
+        logger.info(f"Access for user {user} set to {'allowed' if allowed else 'blocked'}")
     
     def check_limit_exceeded(self, user):
         """Check if user has exceeded their time limit"""
@@ -731,6 +759,27 @@ def handle_device_update(ps5_id, data):
         for player in players:
             if player:
                 game_name = data.get('title_name', 'Unknown Game')
+                # Enforce access allowed toggle
+                if not time_manager.get_user_access(player):
+                    logger.warning(f"Access blocked for {player}; enforcing action")
+                    # Decide enforcement action from config; default to 'turn_off' (rest mode)
+                    action = (config.get('access_enforcement_action') or 'turn_off').lower()
+                    try:
+                        if action in ['turn_off', 'standby', 'rest']:
+                            mqtt_client.publish(f"{config['mqtt_topic_prefix']}/{ps5_id}/command",
+                                                json.dumps({'action': 'turn_off'}))
+                        elif action == 'logout':
+                            # If ps5-mqtt supports a logout action, attempt it; fallback to turn_off
+                            mqtt_client.publish(f"{config['mqtt_topic_prefix']}/{ps5_id}/command",
+                                                json.dumps({'action': 'logout'}))
+                        else:
+                            mqtt_client.publish(f"{config['mqtt_topic_prefix']}/{ps5_id}/command",
+                                                json.dumps({'action': 'turn_off'}))
+                    except Exception as e:
+                        logger.error(f"Failed to enforce access for {player}: {e}")
+                    # Do NOT start a session
+                    continue
+
                 session_id = time_manager.start_session(player, game_name, ps5_id)
                 if session_id:
                     logger.info(f"Started session for {player} playing {game_name} (ID: {session_id})")
@@ -1051,6 +1100,22 @@ def get_discovered_users():
         'users': list(discovered_users),
         'count': len(discovered_users)
     })
+
+@app.route('/api/access/<user>', methods=['GET', 'POST'])
+def user_access(user):
+    """Get or set access allowed for a user."""
+    if request.method == 'GET':
+        allowed = time_manager.get_user_access(user)
+        return jsonify({'user': user, 'allowed': allowed})
+    else:
+        try:
+            data = request.get_json(force=True) or {}
+            allowed = bool(data.get('allowed', True))
+            time_manager.set_user_access(user, allowed)
+            return jsonify({'user': user, 'allowed': allowed})
+        except Exception as e:
+            logger.error(f"Failed to update access for {user}: {e}")
+            return jsonify({'error': str(e)}), 400
 
 @app.route('/api/users/view')
 def view_users():

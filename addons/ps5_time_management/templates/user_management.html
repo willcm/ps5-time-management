@@ -205,6 +205,10 @@
                     <div class="user-header">
                         <div class="user-name">👤 ${user}</div>
                         <div class="actions">
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <input type="checkbox" id="${user}-access" onchange="toggleAccess('${user}', this.checked)">
+                                <span>Access Allowed</span>
+                            </label>
                             <button class="btn btn-primary" onclick="refreshUser('${user}')">🔄 Refresh</button>
                             <a href="./stats/${user}" class="btn btn-warning" style="text-decoration: none; display: inline-block;">📊 View Stats</a>
                             <button class="btn btn-danger" onclick="clearUserStats('${user}')">🗑️ Clear Stats</button>
@@ -244,11 +248,36 @@
                         monthly: data.monthly,
                         remaining: data.remaining || 120
                     });
+                    // Load access state
+                    const accessRes = await fetch(`./api/access/${user}`);
+                    const accessData = await accessRes.json();
+                    if (accessRes.ok) {
+                        const chk = document.getElementById(`${user}-access`);
+                        if (chk) chk.checked = !!accessData.allowed;
+                    }
                 } else {
                     console.warn(`Failed to load stats for ${user}: ${data.message}`);
                 }
             } catch (err) {
                 console.warn(`Error loading stats for ${user}: ${err.message}`);
+            }
+        }
+
+        async function toggleAccess(user, allowed){
+            try {
+                const res = await fetch(`./api/access/${user}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ allowed })
+                });
+                if (!res.ok) {
+                    const data = await res.json();
+                    showError(`Failed to update access for ${user}: ${data.error || res.status}`);
+                } else {
+                    showSuccess(`${user} access ${allowed ? 'allowed' : 'blocked'}`);
+                }
+            } catch (e){
+                showError(`Error updating access for ${user}: ${e.message}`);
             }
         }
         
