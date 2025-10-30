@@ -797,8 +797,8 @@ def on_message(client, userdata, msg):
                 logger.info(f"Processing as device update for PS5 {ps5_id}")
                 handle_device_update(ps5_id, data)
             else:
-                # Ignore our own command subtopic
-                if len(parts) >= 3 and parts[2] == 'command':
+                # Ignore our own command/set subtopics
+                if len(parts) >= 3 and parts[2] in ('command', 'set'):
                     return
                 logger.debug(f"Ignoring non-device topic: {parts}")
                 
@@ -858,15 +858,16 @@ def handle_device_update(ps5_id, data):
                     action = (config.get('access_enforcement_action') or 'turn_off').lower()
                     try:
                         if action in ['turn_off', 'standby', 'rest']:
-                            mqtt_client.publish(f"{config['mqtt_topic_prefix']}/{ps5_id}/command",
-                                                json.dumps({'action': 'turn_off'}))
+                            # ps5-mqtt expects payload 'STANDBY' on ps5-mqtt/<id>/set/power
+                            mqtt_client.publish(f"{config['mqtt_topic_prefix']}/{ps5_id}/set/power",
+                                                'STANDBY')
                         elif action == 'logout':
-                            # If ps5-mqtt supports a logout action, attempt it; fallback to turn_off
-                            mqtt_client.publish(f"{config['mqtt_topic_prefix']}/{ps5_id}/command",
-                                                json.dumps({'action': 'logout'}))
+                            # Logout not supported via ps5-mqtt; fallback to standby
+                            mqtt_client.publish(f"{config['mqtt_topic_prefix']}/{ps5_id}/set/power",
+                                                'STANDBY')
                         else:
-                            mqtt_client.publish(f"{config['mqtt_topic_prefix']}/{ps5_id}/command",
-                                                json.dumps({'action': 'turn_off'}))
+                            mqtt_client.publish(f"{config['mqtt_topic_prefix']}/{ps5_id}/set/power",
+                                                'STANDBY')
                     except Exception as e:
                         logger.error(f"Failed to enforce access for {player}: {e}")
                     # Do NOT start a session
