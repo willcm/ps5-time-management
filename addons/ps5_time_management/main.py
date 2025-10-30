@@ -363,6 +363,7 @@ class PS5TimeManager:
                              ON CONFLICT(game) DO UPDATE SET filename=excluded.filename, last_seen=CURRENT_TIMESTAMP''',
                           (game_name, filename))
                 conn.commit(); conn.close()
+                logger.info(f"Game cover already cached: '{game_name}' -> {filepath}")
                 return filename
 
             # Download and save
@@ -379,7 +380,7 @@ class PS5TimeManager:
                              ON CONFLICT(game) DO UPDATE SET filename=excluded.filename, last_seen=CURRENT_TIMESTAMP''',
                           (game_name, filename))
                 conn.commit(); conn.close()
-                logger.info(f"Cached image for game '{game_name}' -> {filename}")
+                logger.info(f"Cached image for game '{game_name}' -> {filepath}")
                 return filename
         except Exception as e:
             logger.debug(f"Failed to cache image for {game_name}: {e}")
@@ -607,6 +608,7 @@ class PS5TimeManager:
             game_image = None
             cached = self.get_cached_game_image(game_name)
             if cached:
+                logger.debug(f"Using cached cover for '{game_name}': {cached}")
                 game_image = f"./images/{cached}"
             else:
                 # Try from current status and cache it (fuzzy match)
@@ -616,6 +618,7 @@ class PS5TimeManager:
                         if normalized == current_title or normalized in current_title or current_title in normalized:
                             fname = self.cache_game_image(game_name, current_image)
                             if fname:
+                                logger.info(f"Cached from live status for '{game_name}' -> {fname}")
                                 game_image = f"./images/{fname}"
                 except Exception:
                     pass
