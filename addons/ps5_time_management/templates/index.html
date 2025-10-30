@@ -30,11 +30,16 @@
             Console Status
           </h2>
         </div>
-        <div class="space-y-2">
-          <div class="flex items-center gap-2">
-            <span id="status-badge" class="bg-secondary/80 text-secondary-foreground font-medium text-xs px-2.5 py-0.5 rounded-full">Loading…</span>
+        <div class="flex items-center gap-4">
+          <img id="game-cover" class="hidden h-16 w-16 rounded-lg object-cover bg-muted" alt="Game" />
+          <div class="space-y-1">
+            <div class="flex items-center gap-2">
+              <span id="status-badge" class="bg-secondary/80 text-secondary-foreground font-medium text-xs px-2.5 py-0.5 rounded-full">Loading…</span>
+              <div id="players-line" class="text-sm text-foreground hidden"></div>
+              <div id="game-line" class="text-sm text-foreground hidden"></div>
+            </div>
+            <div class="text-xs text-muted-foreground font-mono">Last update <span id="last-update">—</span></div>
           </div>
-          <div class="text-xs text-muted-foreground font-mono">Last update: <span id="last-update">—</span></div>
         </div>
       </div>
 
@@ -67,10 +72,45 @@
         const s = await r.json();
         const badge = document.getElementById('status-badge');
         const last = document.getElementById('last-update');
+        const playersLine = document.getElementById('players-line');
+        const gameLine = document.getElementById('game-line');
+        const cover = document.getElementById('game-cover');
         const power = (s && s.power) || 'UNKNOWN';
         badge.className = 'font-medium text-xs px-2.5 py-0.5 rounded-full ' + badgeFor(power);
         badge.textContent = power;
-        last.textContent = (s && s.last_update) || new Date().toISOString();
+        // Relative updated time
+        try {
+          const ts = s && (s.last_update || s.lastUpdate || s.updated_at);
+          if (ts) {
+            const then = new Date(ts).getTime();
+            const now = Date.now();
+            const sec = Math.max(0, Math.round((now - then) / 1000));
+            last.textContent = sec + 's ago';
+          } else {
+            last.textContent = 'just now';
+          }
+        } catch(_) { last.textContent = '—'; }
+
+        // Players
+        const players = (s && s.players) || (s && s.active_sessions && s.active_sessions.map(a=>a.user)) || [];
+        if (players && players.length) {
+          playersLine.textContent = 'Players: ' + players.join(', ');
+          playersLine.classList.remove('hidden');
+        } else {
+          playersLine.classList.add('hidden');
+        }
+        // Game title + cover
+        const titleName = (s && (s.title_name || (s.title && s.title.name)));
+        const titleImage = (s && (s.title_image || (s.title && s.title.image)));
+        if (titleName || titleImage) {
+          gameLine.textContent = titleName ? 'Game: ' + titleName : '';
+          gameLine.classList.toggle('hidden', !titleName);
+          if (titleImage) {
+            cover.src = titleImage; cover.classList.remove('hidden');
+          } else { cover.classList.add('hidden'); }
+        } else {
+          gameLine.classList.add('hidden'); cover.classList.add('hidden');
+        }
       } catch(e){ /* ignore */ }
     }
 
