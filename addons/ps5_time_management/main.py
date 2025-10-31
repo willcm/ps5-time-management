@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from threading import Thread
 from threading import Timer
 import paho.mqtt.client as mqtt
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, jsonify, request, render_template, url_for
 from flask_cors import CORS
 import logging
 from flask import send_from_directory

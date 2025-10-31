@@ -65,7 +65,8 @@
             <div class="bg-secondary/30 rounded-xl overflow-hidden max-w-[200px]">
               <div class="aspect-[3/4] bg-muted/50 flex items-center justify-center">
                 {% if game.image %}
-                  <img src="{{ game.image }}" alt="{{ game.game }}" class="h-full w-full object-cover" onerror="this.parentElement.innerHTML='🎮'">
+                  {% set img_file = game.image.split('/')[-1] %}
+                  <img src="{{ url_for('serve_cached_image', filename=img_file) }}" alt="{{ game.game }}" class="h-full w-full object-cover" onerror="console.error('Image failed:', '{{ game.image }}'); this.parentElement.innerHTML='🎮';">
                 {% else %}
                   🎮
                 {% endif %}
