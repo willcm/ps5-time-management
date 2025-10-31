@@ -34,6 +34,18 @@
   - [x] Create `config/loader.py` (Config loading)
   - [x] Create `config/mqtt_config.py` (MQTT config)
   - [x] Create `config/logging.py` (Logging setup)
+  
+- [x] Create `utils/` directory
+  - [x] Create `utils/__init__.py`
+  - [x] Create `utils/timers.py` (Timer checking)
+  - [x] Create `utils/data_cleanup.py` (Data cleanup utilities)
+  
+- [x] Extract smaller utility functions
+  - [x] Extract `discover_users_from_ps5_mqtt()` to `mqtt/discovery.py`
+  - [x] Extract `check_timers()` to `utils/timers.py`
+  - [x] Extract `clear_all_user_data()` to `utils/data_cleanup.py`
+  - [x] Extract shutdown functions to `shutdown/manager.py`
+  - [x] Update main.py to import from modules
 
 ## Phase 3: Extract Models Module
 - [ ] Move `PS5TimeManager` class to `models/time_manager.py`
