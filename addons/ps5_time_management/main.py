@@ -1459,37 +1459,6 @@ def api_republish_user_discovery(user):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/users/view')
-def view_users():
-    """View users in a simple HTML page"""
-    users_html = '<br>'.join([f'• {user}' for user in discovered_users]) if discovered_users else 'No users discovered yet'
-    return f'''
-    <html>
-    <head>
-        <title>Users - PS5 Time Management</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-            body {{ font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }}
-            .container {{ background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
-            h1 {{ color: #333; border-bottom: 2px solid #28a745; padding-bottom: 10px; }}
-            .back-btn {{ display: inline-block; margin: 20px 0; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; }}
-            .back-btn:hover {{ background: #0056b3; }}
-            .users {{ background: #f8f9fa; padding: 15px; border-radius: 4px; margin: 20px 0; }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>📋 Discovered Users</h1>
-            <div class="users">
-                <strong>Users ({len(discovered_users)}):</strong><br>
-                {users_html}
-            </div>
-            <a href="./" class="back-btn">← Back to Home</a>
-        </div>
-    </body>
-    </html>
-    '''
-
 @app.route('/api/users/<user>/stats', methods=['GET'])
 def get_user_stats_all(user):
     """Get all stats for a user"""
@@ -1880,47 +1849,6 @@ def globals_css():
     except Exception as e:
         logger.error(f"Failed to serve globals.css: {e}")
         return '', 404
-
-@app.route('/test')
-def test():
-    """Test route to verify routing works"""
-    logger.info("Test route accessed")
-    return '''
-    <html>
-    <head>
-        <title>Test Route - PS5 Time Management</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-            body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
-            .container { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-            h1 { color: #333; border-bottom: 2px solid #28a745; padding-bottom: 10px; }
-            .back-btn { display: inline-block; margin: 20px 0; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; }
-            .back-btn:hover { background: #0056b3; }
-            .success { background: #d4edda; color: #155724; padding: 15px; border-radius: 4px; margin: 20px 0; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>🧪 Test Route</h1>
-            <div class="success">
-                <strong>✅ Success!</strong> Test route works! Flask routing is functioning correctly.
-            </div>
-            <p>This confirms that the web interface is working properly with Home Assistant's ingress system.</p>
-            <a href="./" class="back-btn">← Back to Home</a>
-        </div>
-    </body>
-    </html>
-    '''
-
-@app.route('/user-management')
-def user_management():
-    """Serve the user management web interface"""
-    logger.info("User management route accessed")
-    try:
-        return render_template('user_management.html')
-    except Exception as e:
-        logger.error(f"Error serving user management page: {e}")
-        return f"Error loading user management page: {e}", 500
 
 @app.route('/stats/<user>')
 def user_stats_page(user):
