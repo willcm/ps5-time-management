@@ -66,7 +66,7 @@
               <div class="aspect-[3/4] bg-muted/50 flex items-center justify-center">
                 {% if game.image %}
                   {% set img_file = game.image.split('/')[-1] %}
-                  <img src="{{ url_for('serve_stats_scoped_image', user=user, filename=img_file) }}" alt="{{ game.game }}" class="h-full w-full object-cover" onerror="(async (el)=>{ try{ await fetch('../api/log_image_error', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ user: '{{ user }}', src: el.src }) }); }catch(e){}; el.parentElement.innerHTML='🎮'; })(this)">
+                  <img src="image/{{ img_file }}" alt="{{ game.game }}" class="h-full w-full object-cover" onerror="(async (el)=>{ try{ await fetch('../api/log_image_error', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ user: '{{ user }}', src: el.src }) }); }catch(e){}; el.parentElement.innerHTML='🎮'; })(this)">
                 {% else %}
                   🎮
                 {% endif %}
