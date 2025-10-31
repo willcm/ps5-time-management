@@ -38,8 +38,22 @@ from shutdown.manager import (
 from utils.timers import check_timers as _check_timers
 from utils.data_cleanup import clear_all_user_data as _clear_all_user_data
 
-# Import from mqtt.discovery module
+# Import from mqtt modules
 from mqtt.discovery import discover_users_from_ps5_mqtt as _discover_users_from_ps5_mqtt
+from mqtt.handler import (
+    handle_device_update as _handle_device_update,
+    handle_state_change as _handle_state_change,
+    handle_game_change as _handle_game_change,
+    handle_user_change as _handle_user_change,
+    handle_activity_change as _handle_activity_change,
+    set_dependencies as set_handler_dependencies
+)
+from mqtt.sensors import (
+    publish_user_sensors as _publish_user_sensors,
+    update_all_sensor_states as _update_all_sensor_states,
+    update_user_sensor_states as _update_user_sensor_states,
+    set_dependencies as set_sensor_dependencies
+)
 
 # Create logger - will be reconfigured with proper level after config load
 logger = setup_logging()
@@ -758,6 +772,21 @@ def discover_users_from_ps5_mqtt():
     global discovered_users
     _discover_users_from_ps5_mqtt(discovered_users)
 
+
+def publish_user_sensors(user):
+    """Publish MQTT Discovery sensors for a user"""
+    _publish_user_sensors(user)
+
+
+def update_all_sensor_states():
+    """Update MQTT sensor states for all discovered users"""
+    _update_all_sensor_states()
+
+
+def update_user_sensor_states(user):
+    """Update MQTT sensor states for a specific user"""
+    _update_user_sensor_states(user)
+
 def on_connect(client, userdata, flags, reason_code, properties):
     """Callback when connected to MQTT broker"""
     global mqtt_connected
@@ -766,6 +795,20 @@ def on_connect(client, userdata, flags, reason_code, properties):
     
     # Update shutdown manager with connected client
     set_shutdown_dependencies(time_manager, mqtt_client, True, config)
+    
+    # Update MQTT handler dependencies with connected client
+    set_handler_dependencies(
+        time_manager, mqtt_client, True, config, discovered_users, 
+        latest_device_status, debug_user_name, 
+        apply_shutdown_policy, start_shutdown_warning, 
+        update_all_sensor_states, publish_user_sensors
+    )
+    
+    # Update MQTT sensor dependencies with connected client
+    set_sensor_dependencies(
+        time_manager, mqtt_client, True, config, discovered_users, 
+        published_sensors, user_warning_until
+    )
     
     if reason_code == 0:
         logger.info("Connected to MQTT broker successfully")
@@ -828,335 +871,27 @@ def on_message(client, userdata, msg):
 
 def handle_device_update(ps5_id, data):
     """Handle complete device update from ps5-mqtt"""
-    logger.info(f"Processing device update for PS5 {ps5_id}: {data}")
-    
-    # Extract players from the message
-    players = data.get('players', [])
-    # Update latest device status snapshot
-    try:
-        latest_device_status.update({
-            'ps5_id': ps5_id,
-            'power': data.get('power', latest_device_status.get('power')),
-            'device_status': data.get('device_status', latest_device_status.get('device_status')),
-            'activity': data.get('activity', latest_device_status.get('activity')),
-            'players': players or [],
-            'title_id': data.get('title_id'),
-            'title_name': data.get('title_name'),
-            'title_image': data.get('title_image'),
-            'last_update': datetime.now().isoformat()
-        })
-    except Exception as e:
-        logger.warning(f"Failed updating latest device status: {e}")
-    if players:
-        for player in players:
-            if player and player not in discovered_users:
-                discovered_users.add(player)
-                # Persist the discovered user so it survives restarts/updates
-                time_manager.add_user_if_new(player)
-                logger.info(f"Discovered new user: {player}")
-                # Publish sensors for new user
-                publish_user_sensors(player)
-    
-    # Handle activity changes
-    activity = data.get('activity')
-    if activity == 'playing' and players:
-        # Start tracking session for active players
-        for player in players:
-            if player:
-                game_name = data.get('title_name', 'Unknown Game')
-                # Policy: immediate enforcement if manual override or limit==0.
-                # Otherwise, if a warning is active due to time elapsed, let the countdown continue.
-                try:
-                    # Manual override path
-                    if not time_manager.get_user_access(player):
-                        logger.warning(f"Access disabled for {player}; applying shutdown policy")
-                        apply_shutdown_policy(player, ps5_id, reason='access_disabled')
-                        continue
-                    # Daily limit exhausted now (including zero)
-                    lim = time_manager.get_user_limit(player)
-                    if lim is not None:
-                        current = time_manager.get_user_time_today(player)
-                        if current >= lim:
-                            logger.warning(f"Daily limit reached for {player}; applying shutdown policy")
-                            apply_shutdown_policy(player, ps5_id, reason='limit_reached')
-                            continue
-                except Exception:
-                    pass
-                # Attempt to cache game image proactively
-                try:
-                    if data.get('title_image') and game_name:
-                        time_manager.cache_game_image(game_name, data.get('title_image'))
-                except Exception:
-                    pass
-                # Enforce access allowed toggle
-                if not time_manager.get_user_access(player):
-                    logger.warning(f"Access blocked for {player}; enforcing action")
-                    # Trigger warning then shutdown instead of immediate
-                    try:
-                        start_shutdown_warning(player, ps5_id)
-                    except Exception as e:
-                        logger.error(f"Failed to start warning for {player}: {e}")
-                    continue
+    _handle_device_update(ps5_id, data)
 
-                session_id = time_manager.start_session(player, game_name, ps5_id)
-                if session_id:
-                    if debug_user_name and debug_user_name == player:
-                        logger.info(f"[DEBUG:{player}] Session started (ID: {session_id}) for game {game_name}")
-                    else:
-                        logger.info(f"Started session for {player} playing {game_name} (ID: {session_id})")
-                # else: duplicate suppressed (logged in start_session)
-    elif activity in ['idle', 'none']:
-        # End sessions for this PS5
-        for session_id, session in list(time_manager.active_sessions.items()):
-            if session['ps5_id'] == ps5_id:
-                time_manager.end_session(session_id)
-                logger.info(f"Ended session for PS5 {ps5_id}")
-    
-    # Handle power state
-    power = data.get('power')
-    if power == 'STANDBY':
-        # End all sessions for this PS5 when it goes to standby
-        for session_id, session in list(time_manager.active_sessions.items()):
-            if session['ps5_id'] == ps5_id:
-                time_manager.end_session(session_id)
-                logger.info(f"Ended session due to PS5 {ps5_id} going to standby")
-    
-    # Update sensor states for all discovered users (only if MQTT is ready)
-    if mqtt_connected and mqtt_client is not None:
-        update_all_sensor_states()
-
-def publish_user_sensors(user):
-    """Publish MQTT Discovery sensors for a user"""
-    if not mqtt_connected or mqtt_client is None:
-        logger.debug(f"Deferring discovery publish for {user} until MQTT connected")
-        return
-    discovery_topic = config.get('mqtt', {}).get('discovery_topic', 'homeassistant')
-    
-    # Sensor configurations for each user
-    sensors = [
-        {
-            'name': f'PS5 {user} Daily Playtime',
-            'unique_id': f'ps5_time_management_{user.lower()}_daily',
-            'state_topic': f'ps5_time_management/{user}/daily',
-            'unit_of_measurement': 'min',
-            'icon': 'mdi:clock-outline',
-            'device_class': 'duration'
-        },
-        {
-            'name': f'PS5 {user} Weekly Playtime',
-            'unique_id': f'ps5_time_management_{user.lower()}_weekly',
-            'state_topic': f'ps5_time_management/{user}/weekly',
-            'unit_of_measurement': 'min',
-            'icon': 'mdi:calendar-week',
-            'device_class': 'duration'
-        },
-        {
-            'name': f'PS5 {user} Monthly Playtime',
-            'unique_id': f'ps5_time_management_{user.lower()}_monthly',
-            'state_topic': f'ps5_time_management/{user}/monthly',
-            'unit_of_measurement': 'min',
-            'icon': 'mdi:calendar-month',
-            'device_class': 'duration'
-        },
-        {
-            'name': f'PS5 {user} Time Remaining',
-            'unique_id': f'ps5_time_management_{user.lower()}_remaining',
-            'state_topic': f'ps5_time_management/{user}/remaining',
-            'unit_of_measurement': 'min',
-            'icon': 'mdi:timer-outline',
-            'device_class': 'duration'
-        },
-        {
-            'name': f'PS5 {user} Current Game',
-            'unique_id': f'ps5_time_management_{user.lower()}_game',
-            'state_topic': f'ps5_time_management/{user}/game',
-            'icon': 'mdi:gamepad-variant'
-        },
-        {
-            'name': f'PS5 {user} Session Active',
-            'unique_id': f'ps5_time_management_{user.lower()}_active',
-            'state_topic': f'ps5_time_management/{user}/active',
-            'icon': 'mdi:play'
-        },
-        {
-            'name': f'PS5 {user} Shutdown Warning',
-            'unique_id': f'ps5_time_management_{user.lower()}_warning',
-            'state_topic': f'ps5_time_management/{user}/warning',
-            'entity_category': 'diagnostic',
-            'binary_sensor': True,
-            'device_class': 'problem'
-        }
-    ]
-    
-    # Publish each sensor configuration
-    for sensor in sensors:
-        config_topic = f"{discovery_topic}/sensor/{sensor['unique_id']}/config"
-        
-        sensor_config = {
-            'name': sensor['name'],
-            'unique_id': sensor['unique_id'],
-            'state_topic': sensor['state_topic'],
-            'device': {
-                'identifiers': [f'ps5_time_management_{user.lower()}'],
-                'name': f'PS5 Time Management - {user}',
-                'model': 'PS5 Time Management',
-                'manufacturer': 'PS5 Time Management Add-on'
-            }
-        }
-        
-        # Add optional fields
-        if 'unit_of_measurement' in sensor:
-            sensor_config['unit_of_measurement'] = sensor['unit_of_measurement']
-        if 'device_class' in sensor:
-            sensor_config['device_class'] = sensor['device_class']
-        if 'icon' in sensor:
-            sensor_config['icon'] = sensor['icon']
-        # Discovery domain override for binary_sensor
-        if sensor.get('binary_sensor'):
-            config_topic = config_topic.replace('/sensor/', '/binary_sensor/')
-            # For binary_sensor set payloads
-            sensor_config['payload_on'] = 'ON'
-            sensor_config['payload_off'] = 'OFF'
-        
-        try:
-            mqtt_client.publish(config_topic, json.dumps(sensor_config), retain=True)
-            published_sensors.add(sensor['unique_id'])
-            logger.info(f"Published sensor config: {sensor['name']}")
-        except Exception as e:
-            logger.error(f"Failed to publish sensor config for {sensor['name']}: {e}")
-
-def update_all_sensor_states():
-    """Update MQTT sensor states for all discovered users"""
-    for user in discovered_users:
-        update_user_sensor_states(user)
-
-def update_user_sensor_states(user):
-    """Update MQTT sensor states for a specific user"""
-    try:
-        if not mqtt_connected or mqtt_client is None:
-            logger.debug(f"Deferring state publish for {user} until MQTT connected")
-            return
-        # Get user stats using the correct methods
-        daily_time = time_manager.get_user_time_today(user)
-        weekly_time = time_manager.get_user_weekly_time(user)
-        monthly_time = time_manager.get_user_monthly_time(user)
-        
-        # Get current session info
-        current_session = None
-        for session_id, session in time_manager.active_sessions.items():
-            if session['user'] == user:
-                current_session = session
-                break
-        
-        # Calculate time remaining (assuming 120 min daily limit)
-        daily_limit = 120  # This could be made configurable
-        time_remaining = max(0, daily_limit - daily_time)
-        
-        # Publish sensor states
-        base_topic = f"ps5_time_management/{user}"
-        
-        # Daily playtime
-        mqtt_client.publish(f"{base_topic}/daily", str(daily_time), retain=True)
-        
-        # Weekly playtime
-        mqtt_client.publish(f"{base_topic}/weekly", str(weekly_time), retain=True)
-        
-        # Monthly playtime
-        mqtt_client.publish(f"{base_topic}/monthly", str(monthly_time), retain=True)
-        
-        # Time remaining
-        mqtt_client.publish(f"{base_topic}/remaining", str(time_remaining), retain=True)
-        
-        # Current game
-        current_game = current_session['game'] if current_session else 'None'
-        mqtt_client.publish(f"{base_topic}/game", current_game, retain=True)
-        
-        # Session active
-        session_active = 'ON' if current_session else 'OFF'
-        mqtt_client.publish(f"{base_topic}/active", session_active, retain=True)
-        
-        # Shutdown warning binary sensor
-        warn_on = 'OFF'
-        expiry = user_warning_until.get(user)
-        if expiry and datetime.now() < expiry:
-            warn_on = 'ON'
-        mqtt_client.publish(f"{base_topic}/warning", warn_on, retain=True)
-        
-        logger.debug(f"Updated sensor states for {user}: daily={daily_time}, weekly={weekly_time}, monthly={monthly_time}, remaining={time_remaining}")
-        
-        # Log current session info for debugging
-        if current_session:
-            elapsed_minutes = (datetime.now() - current_session['start_time']).total_seconds() / 60
-            logger.debug(f"Current session for {user}: {current_session['game']} (elapsed: {elapsed_minutes:.1f} min)")
-        else:
-            logger.debug(f"No active session for {user}")
-        
-    except Exception as e:
-        logger.error(f"Failed to update sensor states for {user}: {e}")
 
 def handle_state_change(ps5_id, data):
     """Handle PS5 state changes (on/off)"""
-    if data.get('state') == 'off':
-        # End any active session for this PS5
-        for session_id, session in list(time_manager.active_sessions.items()):
-            if session['ps5_id'] == ps5_id:
-                time_manager.end_session(session_id)
-                logger.info(f"Ended session due to PS5 {ps5_id} turning off")
+    _handle_state_change(ps5_id, data)
+
 
 def handle_game_change(ps5_id, data):
     """Handle game changes"""
-    game = data.get('game')
-    user = current_session.get('user')
-    
-    if game:
-        logger.info(f"PS5 {ps5_id} now playing: {game}")
-        
-        # Check if we should start a new session
-        if user and not current_session.get('start_time'):
-            session_id = time_manager.start_session(user, game, ps5_id)
-            current_session['start_time'] = datetime.now()
-            current_session['game'] = game
-        
-        # Update current game in active sessions
-        for session in time_manager.active_sessions.values():
-            if session['ps5_id'] == ps5_id:
-                session['game'] = game
+    _handle_game_change(ps5_id, data)
+
 
 def handle_user_change(ps5_id, data):
     """Handle user changes"""
-    user = data.get('user') or data.get('username') or data.get('accountName')
-    
-    if user:
-        logger.info(f"PS5 {ps5_id} user changed to: {user}")
-        current_session['user'] = user
-        current_session['ps5_id'] = ps5_id
-        
-        # Add to discovered users
-        if user not in discovered_users:
-            discovered_users.add(user)
-            logger.info(f"Discovered new user: {user}")
-        
-        # Start tracking if game is known
-        if current_session.get('game'):
-            session_id = time_manager.start_session(user, current_session['game'], ps5_id)
-            current_session['start_time'] = datetime.now()
+    _handle_user_change(ps5_id, data)
+
 
 def handle_activity_change(ps5_id, data):
     """Handle activity changes (user presence, game activity)"""
-    # Extract user information from activity data
-    user = data.get('user') or data.get('username') or data.get('accountName')
-    game = data.get('game') or data.get('titleName')
-    
-    if user and user not in discovered_users:
-        discovered_users.add(user)
-        logger.info(f"Discovered new user from activity: {user}")
-    
-    if user and game:
-        logger.info(f"PS5 {ps5_id} activity: {user} playing {game}")
-        # Update current session
-        current_session['user'] = user
-        current_session['game'] = game
-        current_session['ps5_id'] = ps5_id
+    _handle_activity_change(ps5_id, data)
 
 def check_timers():
     """Background thread to check timers and enforce limits"""
@@ -1784,6 +1519,20 @@ def main():
     
     # Initialize shutdown manager dependencies
     set_shutdown_dependencies(time_manager, None, False, config)  # Will update mqtt_client and mqtt_connected after connection
+    
+    # Initialize MQTT handler dependencies (will update mqtt_client after connection)
+    set_handler_dependencies(
+        time_manager, None, False, config, discovered_users, 
+        latest_device_status, debug_user_name, 
+        apply_shutdown_policy, start_shutdown_warning, 
+        update_all_sensor_states, publish_user_sensors
+    )
+    
+    # Initialize MQTT sensor dependencies (will update mqtt_client after connection)
+    set_sensor_dependencies(
+        time_manager, None, False, config, discovered_users, 
+        published_sensors, user_warning_until
+    )
     
     # Set up MQTT client
     mqtt_client = mqtt.Client(client_id="ps5_time_management", callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
