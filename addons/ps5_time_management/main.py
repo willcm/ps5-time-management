@@ -1367,6 +1367,15 @@ def serve_cached_image(filename):
         logger.error(f"Image serve error for {filename}: {e}")
         return "", 404
 
+@app.route('/stats/<user>/image/<path:filename>')
+def serve_stats_scoped_image(user, filename):
+    """Ingress-safe image URL under the stats namespace; proxies to cached image server."""
+    try:
+        return serve_cached_image(filename)
+    except Exception as e:
+        logger.error(f"Stats-scoped image serve error for {filename}: {e}")
+        return "", 404
+
 @app.route('/api/images', methods=['GET'])
 def list_cached_images():
     """List cached image filenames under /data/game_images."""
