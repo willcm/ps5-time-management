@@ -601,19 +601,27 @@ class PS5TimeManager:
 
         current_title = normalize_title(latest_device_status.get('title_name') or '') if latest_device_status else ''
         current_image = latest_device_status.get('title_image') if latest_device_status else None
+        try:
+            logger.debug(f"Top games image resolution context for user '{user}': current_title='{current_title}', has_current_image={'yes' if current_image else 'no'}")
+        except Exception:
+            pass
         games_with_images = []
         for row in results:
             game_name = row[0]
             minutes = row[1]
             game_image = None
+            try:
+                logger.debug(f"Resolving cover: raw_name='{game_name}', normalized='{normalize_title(game_name)}'")
+            except Exception:
+                pass
             cached = self.get_cached_game_image(game_name)
             if cached:
-                logger.debug(f"Using cached cover for '{game_name}': {cached}")
+                logger.info(f"Cover match: using cached entry for '{game_name}' -> filename='{cached}'")
                 # Verify file actually exists on disk
                 try:
                     full_path = os.path.join('/data/game_images', cached)
                     if os.path.exists(full_path):
-                        logger.debug(f"Verified cached cover exists: {full_path}")
+                        logger.debug(f"Cached cover file exists: {full_path}")
                     else:
                         logger.warning(f"Cached cover record found but file missing: {full_path}")
                 except Exception:
@@ -624,14 +632,20 @@ class PS5TimeManager:
                 try:
                     if current_title and current_image:
                         normalized = normalize_title(game_name)
-                        if normalized == current_title or normalized in current_title or current_title in normalized:
+                        title_match = (normalized == current_title) or (normalized in current_title) or (current_title in normalized)
+                        logger.debug(f"Live status match check for '{game_name}': normalized='{normalized}', current_title='{current_title}', match={title_match}")
+                        if title_match:
                             fname = self.cache_game_image(game_name, current_image)
                             if fname:
-                                logger.info(f"Cached from live status for '{game_name}' -> {fname}")
+                                logger.info(f"Cover match: cached from live status for '{game_name}' -> filename='{fname}'")
                                 game_image = f"/images/{fname}"
                 except Exception:
                     pass
             
+            try:
+                logger.debug(f"Resolved cover result for '{game_name}': image='{game_image or 'None'}', minutes={minutes}")
+            except Exception:
+                pass
             games_with_images.append({
                 'game': game_name,
                 'minutes': minutes,
@@ -1929,6 +1943,12 @@ def user_stats_page(user):
                 })
         stats_data['active_sessions'] = active_sessions_info
         
+        try:
+            # Log which images will be shown on the stats page
+            for g in stats_data.get('top_games', []) or []:
+                logger.info(f"Stats page cover: game='{g.get('game')}', image='{g.get('image')}'")
+        except Exception:
+            pass
         return render_template('user_stats.html', **stats_data)
     except Exception as e:
         logger.error(f"Error serving stats page for {user}: {e}")
