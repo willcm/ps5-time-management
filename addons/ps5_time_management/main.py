@@ -601,27 +601,18 @@ class PS5TimeManager:
 
         current_title = normalize_title(latest_device_status.get('title_name') or '') if latest_device_status else ''
         current_image = latest_device_status.get('title_image') if latest_device_status else None
-        try:
-            logger.debug(f"Top games image resolution context for user '{user}': current_title='{current_title}', has_current_image={'yes' if current_image else 'no'}")
-        except Exception:
-            pass
         games_with_images = []
         for row in results:
             game_name = row[0]
             minutes = row[1]
             game_image = None
-            try:
-                logger.debug(f"Resolving cover: raw_name='{game_name}', normalized='{normalize_title(game_name)}'")
-            except Exception:
-                pass
             cached = self.get_cached_game_image(game_name)
             if cached:
-                logger.info(f"Cover match: using cached entry for '{game_name}' -> filename='{cached}'")
                 # Verify file actually exists on disk
                 try:
                     full_path = os.path.join('/data/game_images', cached)
                     if os.path.exists(full_path):
-                        logger.debug(f"Cached cover file exists: {full_path}")
+                        pass
                     else:
                         logger.warning(f"Cached cover record found but file missing: {full_path}")
                 except Exception:
@@ -632,20 +623,13 @@ class PS5TimeManager:
                 try:
                     if current_title and current_image:
                         normalized = normalize_title(game_name)
-                        title_match = (normalized == current_title) or (normalized in current_title) or (current_title in normalized)
-                        logger.debug(f"Live status match check for '{game_name}': normalized='{normalized}', current_title='{current_title}', match={title_match}")
-                        if title_match:
+                        if (normalized == current_title) or (normalized in current_title) or (current_title in normalized):
                             fname = self.cache_game_image(game_name, current_image)
                             if fname:
-                                logger.info(f"Cover match: cached from live status for '{game_name}' -> filename='{fname}'")
                                 game_image = f"/images/{fname}"
                 except Exception:
                     pass
             
-            try:
-                logger.debug(f"Resolved cover result for '{game_name}': image='{game_image or 'None'}', minutes={minutes}")
-            except Exception:
-                pass
             games_with_images.append({
                 'game': game_name,
                 'minutes': minutes,
@@ -1376,19 +1360,7 @@ def serve_stats_scoped_image(user, filename):
         logger.error(f"Stats-scoped image serve error for {filename}: {e}")
         return "", 404
 
-@app.route('/api/log_image_error', methods=['POST'])
-def api_log_image_error():
-    """Receive client-side notifications when an <img> fails to load on the stats page."""
-    try:
-        data = request.get_json(silent=True) or {}
-        user = data.get('user')
-        src = data.get('src')
-        ua = request.headers.get('User-Agent', '-')
-        logger.error(f"Stats image failed to load: user='{user}', src='{src}', ua='{ua}'")
-        return jsonify({'status': 'ok'})
-    except Exception as e:
-        logger.error(f"Error logging stats image failure: {e}")
-        return jsonify({'status': 'error'}), 500
+# Removed debug endpoint /api/log_image_error
 
 @app.route('/api/images', methods=['GET'])
 def list_cached_images():
@@ -1966,12 +1938,6 @@ def user_stats_page(user):
                 })
         stats_data['active_sessions'] = active_sessions_info
         
-        try:
-            # Log which images will be shown on the stats page
-            for g in stats_data.get('top_games', []) or []:
-                logger.info(f"Stats page cover: game='{g.get('game')}', image='{g.get('image')}'")
-        except Exception:
-            pass
         return render_template('user_stats.html', **stats_data)
     except Exception as e:
         logger.error(f"Error serving stats page for {user}: {e}")
