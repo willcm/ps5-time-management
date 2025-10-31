@@ -13,11 +13,14 @@
   - [ ] Create `models/time_manager.py` (PS5TimeManager class)
   - [ ] Create `models/database.py` (DB initialization & utilities)
   
-- [ ] Create `mqtt/` directory
-  - [ ] Create `mqtt/__init__.py`
-  - [ ] Create `mqtt/handler.py` (MQTT client, callbacks)
-  - [ ] Create `mqtt/discovery.py` (User discovery logic)
-  - [ ] Create `mqtt/sensors.py` (Sensor publishing)
+- [x] Create `mqtt/` directory
+  - [x] Create `mqtt/__init__.py`
+  - [x] Create `mqtt/handler.py` (MQTT message handlers)
+  - [x] Create `mqtt/discovery.py` (User discovery logic)
+  - [x] Create `mqtt/sensors.py` (Sensor publishing)
+  - [x] Extract `handle_device_update`, `handle_state_change`, etc. to handler.py
+  - [x] Extract `publish_user_sensors`, `update_all_sensor_states`, etc. to sensors.py
+  - [x] Update main.py to import from mqtt modules
   
 - [x] Create `shutdown/` directory
   - [x] Create `shutdown/__init__.py`
