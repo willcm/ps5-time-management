@@ -1,6 +1,7 @@
 """MQTT message handlers for PS5 Time Management add-on"""
 import logging
 from datetime import datetime
+from models.time_manager import set_latest_device_status
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,8 @@ def handle_device_update(ps5_id, data):
             'title_image': data.get('title_image'),
             'last_update': datetime.now().isoformat()
         })
+        # Update the models module so PS5TimeManager can access it
+        set_latest_device_status(latest_device_status)
     except Exception as e:
         logger.warning(f"Failed updating latest device status: {e}")
     if players:
@@ -86,13 +89,19 @@ def handle_device_update(ps5_id, data):
                         apply_shutdown_policy_func(player, ps5_id, reason='access_disabled')
                         continue
                     # Daily limit exhausted now (including zero)
-                    lim = time_manager.get_user_limit(player)
-                    if lim is not None:
-                        current = time_manager.get_user_time_today(player)
-                        if current >= lim:
-                            logger.warning(f"Daily limit reached for {player}; applying shutdown policy")
-                            apply_shutdown_policy_func(player, ps5_id, reason='limit_reached')
-                            continue
+                    lim_obj = time_manager.get_user_limit(player)
+                    if lim_obj is not None:
+                        # Handle both dict and old format
+                        if isinstance(lim_obj, dict):
+                            lim = lim_obj.get('daily_limit_minutes')
+                        else:
+                            lim = lim_obj
+                        if lim is not None:
+                            current = time_manager.get_user_time_today(player)
+                            if current >= lim:
+                                logger.warning(f"Daily limit reached for {player}; applying shutdown policy")
+                                apply_shutdown_policy_func(player, ps5_id, reason='limit_reached')
+                                continue
                 except Exception:
                     pass
                 # Attempt to cache game image proactively

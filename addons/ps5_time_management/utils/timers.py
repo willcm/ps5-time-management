@@ -31,7 +31,14 @@ def check_timers(time_manager, config, apply_shutdown_policy_func):
                 
                 # Check for warning before shutdown
                 elif config.get('graceful_shutdown_warnings'):
-                    limit = time_manager.get_user_limit(user)
+                    limit_obj = time_manager.get_user_limit(user)
+                    # Handle both dict and old format
+                    if isinstance(limit_obj, dict):
+                        limit = limit_obj.get('daily_limit_minutes')
+                    elif limit_obj is not None:
+                        limit = limit_obj
+                    else:
+                        limit = None
                     time_today = time_manager.get_user_time_today(user)
                     warning_minutes = config.get('warning_before_shutdown_minutes', 10)
                     

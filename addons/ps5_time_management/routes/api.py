@@ -202,13 +202,21 @@ def register_limit_routes():
     @app.route('/api/limits/<user>', methods=['GET'])
     def get_limit(user):
         """Get time limit for user"""
-        limit = time_manager.get_user_limit(user)
+        limit_obj = time_manager.get_user_limit(user)
         current_time = time_manager.get_user_time_today(user)
         
+        # Handle both dict and old format
+        if isinstance(limit_obj, dict):
+            daily_limit = limit_obj.get('daily_limit_minutes')
+        elif limit_obj is not None:
+            daily_limit = limit_obj
+        else:
+            daily_limit = None
+        
         return jsonify({
-            'daily_limit': limit,
+            'daily_limit': daily_limit,
             'current_time': current_time,
-            'remaining': limit - current_time if limit else None
+            'remaining': daily_limit - current_time if daily_limit else None
         })
 
     @app.route('/api/limits/<user>', methods=['POST'])
