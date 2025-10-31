@@ -9,14 +9,18 @@ logger = logging.getLogger(__name__)
 # Global state that needs to be accessed
 time_manager = None  # Will be set by main
 mqtt_client = None  # Will be set by main
+mqtt_connected = False  # Will be set by main
+config_dict = {}  # Will be set by main
 user_warning_until = {}  # user -> datetime when warning expires
 
 
-def set_dependencies(tm, mqtt):
-    """Set the time manager and mqtt client dependencies"""
-    global time_manager, mqtt_client
+def set_dependencies(tm, mqtt, mqtt_conn, cfg):
+    """Set the time manager, mqtt client, connection status, and config dependencies"""
+    global time_manager, mqtt_client, mqtt_connected, config_dict
     time_manager = tm
     mqtt_client = mqtt
+    mqtt_connected = mqtt_conn
+    config_dict = cfg
 
 
 def log_shutdown_event(user: str, ps5_id: str, reason: str, mode: str):
@@ -75,9 +79,9 @@ def start_shutdown_warning(user: str, ps5_id: str):
     warning_end = datetime.now() + timedelta(seconds=60)
     user_warning_until[user] = warning_end
     
-    # Publish warning sensor state
+    # Publish warning sensor state (matching format used in publish_user_sensors)
     try:
-        topic = f"homeassistant/binary_sensor/ps5_time_management_{user.lower().replace(' ', '_')}_shutdown_warning/state"
+        topic = f"ps5_time_management/{user}/warning"
         mqtt_client.publish(topic, "ON", retain=True)
         logger.info(f"Published shutdown warning ON for {user}")
     except Exception as e:
@@ -100,10 +104,10 @@ def enforce_standby(ps5_id: str, user: str | None = None, reason: str = 'manual_
     
     global user_warning_until
     if user:
-        # Clear warning sensor
+        # Clear warning sensor (matching format used in publish_user_sensors)
         user_warning_until.pop(user, None)
         try:
-            topic = f"homeassistant/binary_sensor/ps5_time_management_{user.lower().replace(' ', '_')}_shutdown_warning/state"
+            topic = f"ps5_time_management/{user}/warning"
             mqtt_client.publish(topic, "OFF", retain=True)
             logger.info(f"Cleared shutdown warning for {user}")
         except Exception as e:
@@ -114,8 +118,8 @@ def enforce_standby(ps5_id: str, user: str | None = None, reason: str = 'manual_
     
     # Send STANDBY command
     try:
-        topic_prefix = "ps5-mqtt"  # Will be configurable later
-        standby_topic = f"{topic_prefix}/{ps5_id}/set"
+        topic_prefix = config_dict.get('mqtt_topic_prefix', 'ps5-mqtt')
+        standby_topic = f"{topic_prefix}/{ps5_id}/set/power"
         mqtt_client.publish(standby_topic, "STANDBY", retain=False)
         logger.info(f"Published STANDBY command to {standby_topic}")
         if user:

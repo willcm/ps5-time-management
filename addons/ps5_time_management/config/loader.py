@@ -24,17 +24,12 @@ def load_config():
             global debug_user_name
             debug_user_name = config.get('debug_user')
             
-            # Handle clear_all_stats option - import here to avoid circular dependency
+            # Handle clear_all_stats option - callback will be provided by main
             if config.get('clear_all_stats', False):
                 logger.warning("Clear all stats option detected - clearing all user data")
-                # Import here to avoid circular dependency
-                from main import clear_all_user_data
-                clear_all_user_data()
-                # Reset the option to prevent repeated clearing
-                config['clear_all_stats'] = False
-                with open(config_path, 'w') as f:
-                    json.dump(config, f, indent=2)
-                logger.info("Cleared all stats and reset option")
+                # This will be handled by the wrapper in main.py after load
+                # to avoid circular dependency
+                pass
             
             return config
     

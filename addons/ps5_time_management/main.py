@@ -19,32 +19,27 @@ import logging
 from flask import send_from_directory
 from urllib.request import urlopen, Request
 
-# Configure logging - will be updated after config is loaded
-def setup_logging(log_level='INFO'):
-    """Setup logging with configurable level"""
-    level = getattr(logging, log_level.upper(), logging.INFO)
-    
-    root_logger = logging.getLogger()
-    
-    # Prevent duplicate handlers - clear existing handlers first
-    if root_logger.handlers:
-        root_logger.handlers.clear()
-    
-    # Set up console handler with detailed format
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(level)
-    console_handler.setFormatter(logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    ))
-    
-    root_logger.setLevel(level)
-    root_logger.addHandler(console_handler)
-    
-    # Suppress Flask/Werkzeug noise
-    logging.getLogger('werkzeug').setLevel(logging.WARNING)
-    
-    return logging.getLogger(__name__)
+# Import from config modules
+from config.logging import setup_logging
+from config.loader import load_config as _load_config_from_module
+from config.mqtt_config import get_mqtt_config as _get_mqtt_config_from_module
+
+# Import from shutdown module
+from shutdown.manager import (
+    log_shutdown_event,
+    has_shutdown_today,
+    apply_shutdown_policy,
+    start_shutdown_warning,
+    enforce_standby,
+    set_dependencies as set_shutdown_dependencies
+)
+
+# Import from utils modules
+from utils.timers import check_timers as _check_timers
+from utils.data_cleanup import clear_all_user_data as _clear_all_user_data
+
+# Import from mqtt.discovery module
+from mqtt.discovery import discover_users_from_ps5_mqtt as _discover_users_from_ps5_mqtt
 
 # Create logger - will be reconfigured with proper level after config load
 logger = setup_logging()
@@ -75,80 +70,7 @@ mqtt_connected = False
 debug_user_name = None
 user_warning_until = {}  # user -> datetime when warning expires
 
-def log_shutdown_event(user: str, ps5_id: str, reason: str, mode: str):
-    try:
-        conn = sqlite3.connect(time_manager.db_path)
-        c = conn.cursor()
-        c.execute('''INSERT INTO shutdown_events (user, ps5_id, reason, mode) VALUES (?, ?, ?, ?)''',
-                  (user, ps5_id, reason, mode))
-        conn.commit(); conn.close()
-        logger.info(f"Logged shutdown event: user={user}, reason={reason}, mode={mode}")
-    except Exception as e:
-        logger.warning(f"Failed to log shutdown event for {user}: {e}")
-
-def has_shutdown_today(user: str) -> bool:
-    """Return True if we have already enforced a shutdown for this user today."""
-    try:
-        today = datetime.now().date().isoformat()
-        conn = sqlite3.connect(time_manager.db_path)
-        c = conn.cursor()
-        c.execute('''SELECT 1 FROM shutdown_events 
-                     WHERE user=? AND substr(created_at,1,10)=? 
-                     LIMIT 1''', (user, today))
-        row = c.fetchone()
-        conn.close()
-        return row is not None
-    except Exception as e:
-        logger.debug(f"has_shutdown_today failed for {user}: {e}")
-        return False
-
-def apply_shutdown_policy(user: str, ps5_id: str, reason: str):
-    """First shutdown today => 60s warning; subsequent attempts => immediate standby."""
-    if has_shutdown_today(user):
-        logger.warning(f"{user} already shutdown once today; enforcing immediate standby")
-        enforce_standby(ps5_id, user, reason='retry_blocked')
-    else:
-        start_shutdown_warning(user, ps5_id)
-
-def start_shutdown_warning(user: str, ps5_id: str):
-    """Set warning sensor ON for 60 seconds, then put console in rest mode."""
-    try:
-        expiry = datetime.now() + timedelta(seconds=60)
-        user_warning_until[user] = expiry
-        if mqtt_connected and mqtt_client is not None:
-            mqtt_client.publish(f"ps5_time_management/{user}/warning", 'ON', retain=True)
-        logger.info(f"Warning started for {user} (will enforce after 60s)")
-
-        def enforce():
-            # Clear warning sensor
-            user_warning_until.pop(user, None)
-            if mqtt_connected and mqtt_client is not None:
-                mqtt_client.publish(f"ps5_time_management/{user}/warning", 'OFF', retain=True)
-                # Send standby command via ps5-mqtt
-                try:
-                    mqtt_client.publish(f"{config.get('mqtt_topic_prefix','ps5-mqtt')}/{ps5_id}/set/power", 'STANDBY')
-                    log_shutdown_event(user, ps5_id, 'limit_exceeded_or_scheduled', 'delayed')
-                except Exception as e:
-                    logger.error(f"Failed to publish standby for {user}: {e}")
-
-        Timer(60.0, enforce).start()
-    except Exception as e:
-        logger.error(f"Failed to start shutdown warning for {user}: {e}")
-
-def enforce_standby(ps5_id: str, user: str | None = None, reason: str = 'manual_or_policy'):
-    """Immediately put console into standby via ps5-mqtt and clear warning for user if provided."""
-    try:
-        if user:
-            user_warning_until.pop(user, None)
-            if mqtt_connected and mqtt_client is not None:
-                mqtt_client.publish(f"ps5_time_management/{user}/warning", 'OFF', retain=True)
-        if mqtt_connected and mqtt_client is not None:
-            mqtt_client.publish(f"{config.get('mqtt_topic_prefix','ps5-mqtt')}/{ps5_id}/set/power", 'STANDBY')
-        if user:
-            log_shutdown_event(user, ps5_id, reason, 'immediate')
-        logger.info(f"Enforced immediate standby for PS5 {ps5_id}{' (user '+user+')' if user else ''}")
-    except Exception as e:
-        logger.error(f"Failed to enforce standby: {e}")
+# Shutdown functions are now imported from shutdown.manager module
 published_sensors = set()  # Track which sensors we've published via MQTT Discovery
 current_session = {
     'user': None,
@@ -834,40 +756,19 @@ time_manager = None
 def discover_users_from_ps5_mqtt():
     """Discover users from ps5-mqtt configuration and MQTT topics"""
     global discovered_users
-    
-    # Method 1: Try to read ps5-mqtt configuration file
-    ps5_mqtt_config_paths = [
-        '/config/addons_config/ps5_mqtt/options.json',
-        '/data/options.json',  # ps5-mqtt might store config here
-        '/addons/ps5_mqtt/options.json'
-    ]
-    
-    for config_path in ps5_mqtt_config_paths:
-        try:
-            if os.path.exists(config_path):
-                with open(config_path, 'r') as f:
-                    ps5_config = json.load(f)
-                    psn_accounts = ps5_config.get('psn_accounts', [])
-                    for account in psn_accounts:
-                        username = account.get('username')
-                        if username:
-                            discovered_users.add(username)
-                            logger.info(f"Discovered user from ps5-mqtt config: {username}")
-        except Exception as e:
-            logger.debug(f"Could not read ps5-mqtt config from {config_path}: {e}")
-    
-    # Method 2: Scan MQTT topics for user activity
-    # This will be populated as we receive MQTT messages
-    logger.info(f"Currently discovered users: {list(discovered_users)}")
+    _discover_users_from_ps5_mqtt(discovered_users)
 
 def on_connect(client, userdata, flags, reason_code, properties):
     """Callback when connected to MQTT broker"""
+    global mqtt_connected
+    mqtt_connected = True
     logger.info(f"MQTT on_connect callback: reason_code={reason_code}, flags={flags}")
+    
+    # Update shutdown manager with connected client
+    set_shutdown_dependencies(time_manager, mqtt_client, True, config)
     
     if reason_code == 0:
         logger.info("Connected to MQTT broker successfully")
-        global mqtt_connected
-        mqtt_connected = True
         
         # Discover users from ps5-mqtt configuration
         discover_users_from_ps5_mqtt()
@@ -1259,37 +1160,7 @@ def handle_activity_change(ps5_id, data):
 
 def check_timers():
     """Background thread to check timers and enforce limits"""
-    while True:
-        try:
-            time.sleep(60)  # Check every minute
-            
-            for session_id, session in list(time_manager.active_sessions.items()):
-                user = session['user']
-                
-                # Check if limit exceeded
-                if time_manager.check_limit_exceeded(user):
-                    # Trigger 60s warning, then shutdown
-                    logger.warning(f"User {user} has exceeded their time limit")
-                    time_manager.add_notification(user, 'limit_exceeded', 
-                        "Your time limit has been reached for today")
-                    if config.get('enable_auto_shutdown'):
-                        apply_shutdown_policy(user, session['ps5_id'], reason='limit_exceeded')
-                
-                # Check for warning before shutdown
-                elif config.get('graceful_shutdown_warnings'):
-                    limit = time_manager.get_user_limit(user)
-                    time_today = time_manager.get_user_time_today(user)
-                    warning_minutes = config.get('warning_before_shutdown_minutes', 10)
-                    
-                    if limit and time_today >= (limit - warning_minutes):
-                        if 'warning_sent' not in session.get('warnings_sent', []):
-                            session.setdefault('warnings_sent', []).append('warning_sent')
-                            logger.info(f"Sending warning to {user}")
-                            time_manager.add_notification(user, 'warning', 
-                                f"You have {warning_minutes} minutes remaining")
-                            
-        except Exception as e:
-            logger.error(f"Error in timer check: {e}")
+    _check_timers(time_manager, config, apply_shutdown_policy)
 
 # Flask API endpoints
 
@@ -1760,43 +1631,7 @@ def refresh_user_sensors(user):
 
 def clear_all_user_data():
     """Clear all historic data for all users"""
-    try:
-        conn = sqlite3.connect(time_manager.db_path)
-        c = conn.cursor()
-        
-        # Get list of all users in database
-        c.execute('SELECT DISTINCT user FROM user_stats')
-        db_users = [row[0] for row in c.fetchall()]
-        
-        # Also include currently discovered users
-        all_users = list(set(db_users + list(discovered_users)))
-        
-        # Clear data for all users
-        cleared_users = []
-        for user in all_users:
-            # Delete all user_stats for this user
-            c.execute('DELETE FROM user_stats WHERE user=?', (user,))
-            
-            # Delete all sessions for this user
-            c.execute('DELETE FROM sessions WHERE user=?', (user,))
-            
-            # Delete all game_stats for this user
-            c.execute('DELETE FROM game_stats WHERE user=?', (user,))
-            
-            cleared_users.append(user)
-        
-        conn.commit()
-        conn.close()
-        
-        # Force update sensor states for all users
-        update_all_sensor_states()
-        
-        logger.info(f"Cleared all historic data for {len(cleared_users)} users: {cleared_users}")
-        return cleared_users
-        
-    except Exception as e:
-        logger.error(f"Error clearing all user data: {e}")
-        return []
+    return _clear_all_user_data(time_manager, discovered_users, update_all_sensor_states)
 
 @app.route('/api/report/<user>', methods=['GET'])
 def get_report(user):
@@ -1887,108 +1722,34 @@ def user_stats_page(user):
 
 def load_config():
     """Load configuration from options.json"""
-    global logger
+    global logger, debug_user_name
     
-    config_path = '/data/options.json'
-    if os.path.exists(config_path):
-        with open(config_path, 'r') as f:
-            config = json.load(f)
-            
-            # Setup logging based on config
-            log_level = config.get('log_level', 'INFO')
-            logger = setup_logging(log_level)
-            logger.info(f"Configuration loaded from {config_path}")
-            logger.debug(f"Full configuration: {json.dumps(config, indent=2)}")
-            # Set per-user debug if provided
-            global debug_user_name
-            debug_user_name = config.get('debug_user')
-            
-            # Handle clear_all_stats option
-            if config.get('clear_all_stats', False):
-                logger.warning("Clear all stats option detected - clearing all user data")
-                clear_all_user_data()
-                # Reset the option to prevent repeated clearing
-                config['clear_all_stats'] = False
-                with open(config_path, 'w') as f:
-                    json.dump(config, f, indent=2)
-                logger.info("Cleared all stats and reset option")
-            
-            return config
+    config_dict = _load_config_from_module()
     
-    logger.warning(f"Configuration file not found at {config_path}, using defaults")
-    return {}
+    # Setup logging based on config
+    log_level = config_dict.get('log_level', 'INFO')
+    logger = setup_logging(log_level)
+    logger.info(f"Configuration loaded")
+    logger.debug(f"Full configuration: {json.dumps(config_dict, indent=2)}")
+    # Set per-user debug if provided
+    debug_user_name = config_dict.get('debug_user')
+    
+    # Handle clear_all_stats option
+    if config_dict.get('clear_all_stats', False):
+        logger.warning("Clear all stats option detected - clearing all user data")
+        clear_all_user_data()
+        # Reset the option to prevent repeated clearing
+        config_dict['clear_all_stats'] = False
+        config_path = '/data/options.json'
+        with open(config_path, 'w') as f:
+            json.dump(config_dict, f, indent=2)
+        logger.info("Cleared all stats and reset option")
+    
+    return config_dict
 
 def get_mqtt_config():
     """Get MQTT configuration from Home Assistant or manual config"""
-    # Check for Home Assistant MQTT service configuration
-    ha_mqtt_config = {
-        'host': os.environ.get('MQTT_HOST'),
-        'port': int(os.environ.get('MQTT_PORT', 1883)) if os.environ.get('MQTT_PORT') else 1883,
-        'user': os.environ.get('MQTT_USERNAME'),
-        'password': os.environ.get('MQTT_PASSWORD'),
-        'discovery_topic': os.environ.get('DISCOVERY_TOPIC', 'homeassistant')
-    }
-    
-    # Debug: Log all MQTT-related environment variables
-    logger.info("MQTT Environment Variables:")
-    for key, value in os.environ.items():
-        if 'MQTT' in key.upper():
-            logger.info(f"  {key}: '{value}'")
-    
-    # Also check for other common MQTT environment variables
-    logger.info("All Environment Variables:")
-    for key, value in os.environ.items():
-        if any(keyword in key.upper() for keyword in ['MQTT', 'MOSQUITTO', 'BROKER']):
-            logger.info(f"  {key}: '{value}'")
-    
-    # If Home Assistant provided MQTT config, use it
-    if ha_mqtt_config['host']:
-        logger.info("Using Home Assistant MQTT service configuration")
-        return ha_mqtt_config
-    
-    # Try to read MQTT config from Home Assistant configuration files
-    logger.info("Attempting to read MQTT config from Home Assistant files")
-    try:
-        # Check common Home Assistant config locations
-        config_paths = [
-            '/config/configuration.yaml',
-            '/config/mqtt.yaml',
-            '/data/options.json'  # This might contain MQTT config
-        ]
-        
-        for config_path in config_paths:
-            if os.path.exists(config_path):
-                logger.info(f"Found config file: {config_path}")
-                # Try to read and parse MQTT config from these files
-                # This is a simplified approach - in practice, we'd need proper YAML parsing
-                with open(config_path, 'r') as f:
-                    content = f.read()
-                    if 'mqtt:' in content.lower():
-                        logger.info(f"Found MQTT configuration in {config_path}")
-                        # For now, just log that we found it
-                        break
-    except Exception as e:
-        logger.warning(f"Could not read Home Assistant config files: {e}")
-    
-    # Fall back to manual configuration
-    mqtt_config = config.get('mqtt', {})
-    manual_config = {
-        'host': mqtt_config.get('host', 'core-mosquitto'),
-        'port': int(mqtt_config.get('port', 1883)),
-        'user': mqtt_config.get('user', ''),
-        'password': mqtt_config.get('pass', ''),
-        'discovery_topic': mqtt_config.get('discovery_topic', 'homeassistant')
-    }
-    
-    # If no manual config provided, try anonymous connection first
-    if not manual_config['user'] and not manual_config['password']:
-        logger.info("No MQTT credentials provided, attempting anonymous connection")
-        # Try without authentication first (like ps5-mqtt does)
-        manual_config['user'] = None
-        manual_config['password'] = None
-    
-    logger.info("Using manual MQTT configuration")
-    return manual_config
+    return _get_mqtt_config_from_module(config)
 
 def main():
     """Main entry point"""
@@ -2020,6 +1781,9 @@ def main():
     
     logger.info(f"MQTT Configuration: {mqtt_config['host']}:{mqtt_config['port']}")
     logger.debug(f"Full MQTT config: {mqtt_config}")
+    
+    # Initialize shutdown manager dependencies
+    set_shutdown_dependencies(time_manager, None, False, config)  # Will update mqtt_client and mqtt_connected after connection
     
     # Set up MQTT client
     mqtt_client = mqtt.Client(client_id="ps5_time_management", callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
