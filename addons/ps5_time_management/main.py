@@ -1360,6 +1360,20 @@ def serve_stats_scoped_image(user, filename):
         logger.error(f"Stats-scoped image serve error for {filename}: {e}")
         return "", 404
 
+@app.route('/ps5.svg')
+def serve_ps5_svg():
+    """Serve the PS5 SVG icon"""
+    try:
+        svg_path = os.path.join('/app', 'ps5.svg')
+        if os.path.exists(svg_path):
+            with open(svg_path, 'r', encoding='utf-8') as f:
+                return f.read(), 200, {'Content-Type': 'image/svg+xml'}
+        else:
+            return "", 404
+    except Exception as e:
+        logger.error(f"SVG serve error: {e}")
+        return "", 404
+
 # Removed debug endpoint /api/log_image_error
 
 @app.route('/api/images', methods=['GET'])
