@@ -1376,6 +1376,20 @@ def serve_stats_scoped_image(user, filename):
         logger.error(f"Stats-scoped image serve error for {filename}: {e}")
         return "", 404
 
+@app.route('/api/log_image_error', methods=['POST'])
+def api_log_image_error():
+    """Receive client-side notifications when an <img> fails to load on the stats page."""
+    try:
+        data = request.get_json(silent=True) or {}
+        user = data.get('user')
+        src = data.get('src')
+        ua = request.headers.get('User-Agent', '-')
+        logger.error(f"Stats image failed to load: user='{user}', src='{src}', ua='{ua}'")
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        logger.error(f"Error logging stats image failure: {e}")
+        return jsonify({'status': 'error'}), 500
+
 @app.route('/api/images', methods=['GET'])
 def list_cached_images():
     """List cached image filenames under /data/game_images."""
