@@ -486,7 +486,7 @@ class PS5TimeManager:
                 logger.debug(f"Active session for {user}: {session['game']} - {session_minutes:.1f} minutes elapsed")
         
         total_time = completed_time + active_time
-        logger.info(f"User {user} time today: {completed_time} min completed (from DB) + {active_time:.1f} min active ({active_count} sessions) = {total_time:.1f} min total")
+        logger.debug(f"User {user} time today: {completed_time} min completed (from DB) + {active_time:.1f} min active ({active_count} sessions) = {total_time:.1f} min total")
         return int(round(total_time))  # Round instead of truncate for better accuracy
     
     def get_user_weekly_time(self, user):
@@ -518,7 +518,7 @@ class PS5TimeManager:
                     active_time += elapsed / 60  # Convert to minutes
         
         total_time = completed_time + active_time
-        logger.info(f"User {user} weekly time: {completed_time} min completed (from DB) + {active_time:.1f} min active = {total_time:.1f} min total")
+        logger.debug(f"User {user} weekly time: {completed_time} min completed (from DB) + {active_time:.1f} min active = {total_time:.1f} min total")
         return int(round(total_time))
     
     def get_user_monthly_time(self, user):
@@ -550,7 +550,7 @@ class PS5TimeManager:
                     active_time += elapsed / 60  # Convert to minutes
         
         total_time = completed_time + active_time
-        logger.info(f"User {user} monthly time: {completed_time} min completed (from DB) + {active_time:.1f} min active = {total_time:.1f} min total")
+        logger.debug(f"User {user} monthly time: {completed_time} min completed (from DB) + {active_time:.1f} min active = {total_time:.1f} min total")
         return int(round(total_time))
     
     def get_top_games(self, user, days=30, limit=10):
