@@ -131,6 +131,11 @@ def on_connect(client, userdata, flags, reason_code, properties):
     mqtt_connected = True
     logger.info(f"MQTT on_connect callback: reason_code={reason_code}, flags={flags}")
     
+    # Update time_manager with MQTT client reference FIRST (needed for session restoration)
+    if time_manager:
+        time_manager.mqtt_client = mqtt_client
+        logger.debug("Updated time_manager.mqtt_client reference")
+    
     # Update shutdown manager with connected client
     set_shutdown_dependencies(time_manager, mqtt_client, True, config)
     
@@ -161,6 +166,22 @@ def on_connect(client, userdata, flags, reason_code, properties):
         client.subscribe(subscribe_topic)
         
         logger.info(f"Subscribed to MQTT topics with prefix: {topic_prefix}")
+        
+        # Restore active sessions from MQTT retained messages before publishing states
+        # This ensures time calculations are accurate immediately after restart
+        try:
+            if time_manager and discovered_users and mqtt_client:
+                logger.info("Restoring active sessions from MQTT retained messages...")
+                for user in list(discovered_users):
+                    # Trigger restoration by calling get_user_time_today (which will check retained messages)
+                    # This will restore sessions if they exist in retained state
+                    try:
+                        time_manager.get_user_time_today(user)
+                    except Exception as e:
+                        logger.debug(f"Error checking retained state for {user}: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to restore sessions from retained messages: {e}")
+        
         # Publish discovery for all known users now that we're connected
         try:
             if discovered_users:

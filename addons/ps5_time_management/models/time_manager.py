@@ -383,7 +383,8 @@ class PS5TimeManager:
                                     retained_msg_value[0] = msg.payload.decode('utf-8') if msg.payload else None
                                     retained_msg_received.set()
                             
-                            # Temporarily add message handler
+                            # Temporarily add message handler (save original first)
+                            original_on_message = self.mqtt_client.on_message
                             self.mqtt_client.on_message = on_message_check_retained
                             self.mqtt_client.subscribe(state_topic, qos=1)
                             # Wait briefly for retained message (MQTT sends retained on subscribe)
@@ -392,8 +393,8 @@ class PS5TimeManager:
                                 logger.info(f"Retrieved session_active state from MQTT retained message for {user}: {session_active_state}")
                             else:
                                 logger.debug(f"No retained message found on {state_topic} for {user}")
-                            # Restore original message handler (will be set by main.py later)
-                            self.mqtt_client.on_message = None
+                            # Restore original message handler
+                            self.mqtt_client.on_message = original_on_message
                         except Exception as e:
                             logger.debug(f"Failed to check MQTT retained message for {user}: {e}")
                     
