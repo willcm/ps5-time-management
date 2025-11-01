@@ -43,7 +43,8 @@ def publish_user_sensors(user):
             'state_topic': f'ps5_time_management/{user}/daily',
             'unit_of_measurement': 'min',
             'icon': 'mdi:clock-outline',
-            'device_class': 'duration'
+            'device_class': 'duration',
+            'state_class': 'total'
         },
         {
             'name': f'PS5 {user} Weekly Playtime',
@@ -51,7 +52,8 @@ def publish_user_sensors(user):
             'state_topic': f'ps5_time_management/{user}/weekly',
             'unit_of_measurement': 'min',
             'icon': 'mdi:calendar-week',
-            'device_class': 'duration'
+            'device_class': 'duration',
+            'state_class': 'total'
         },
         {
             'name': f'PS5 {user} Monthly Playtime',
@@ -59,7 +61,8 @@ def publish_user_sensors(user):
             'state_topic': f'ps5_time_management/{user}/monthly',
             'unit_of_measurement': 'min',
             'icon': 'mdi:calendar-month',
-            'device_class': 'duration'
+            'device_class': 'duration',
+            'state_class': 'total'
         },
         {
             'name': f'PS5 {user} Time Remaining',
@@ -112,6 +115,8 @@ def publish_user_sensors(user):
             sensor_config['unit_of_measurement'] = sensor['unit_of_measurement']
         if 'device_class' in sensor:
             sensor_config['device_class'] = sensor['device_class']
+        if 'state_class' in sensor:
+            sensor_config['state_class'] = sensor['state_class']
         if 'icon' in sensor:
             sensor_config['icon'] = sensor['icon']
         # Discovery domain override for binary_sensor
