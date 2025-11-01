@@ -184,10 +184,11 @@ class PS5TimeManager:
     
     def start_session(self, user, game, ps5_id):
         """Start a new gaming session"""
-        # Prevent duplicate sessions for same user on same PS5
+        # Safety check: Prevent duplicate sessions for same user on same PS5
+        # (Handler should prevent this, but this is a defensive check)
         for session_id, s in self.active_sessions.items():
             if s['user'] == user and s.get('ps5_id') == ps5_id:
-                logger.info(f"Duplicate session suppressed for {user} on PS5 {ps5_id} (existing session: {session_id})")
+                logger.debug(f"Duplicate session suppressed for {user} on PS5 {ps5_id} (existing session: {session_id})")
                 return False
         
         session_id = f"{ps5_id}:{user}:{int(time.time())}"

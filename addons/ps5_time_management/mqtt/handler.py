@@ -18,6 +18,10 @@ start_shutdown_warning_func = None
 update_all_sensor_states_func = None
 publish_user_sensors_func = None
 
+# Track previous power state per PS5 to detect transitions
+# Format: {ps5_id: 'AWAKE' | 'STANDBY' | 'UNKNOWN'}
+previous_power_state = {}
+
 
 def set_dependencies(tm, mqtt, mqtt_conn, cfg, discovered, latest_status, debug_user, 
                     shutdown_policy_func, warning_func, sensor_update_func, publish_func):
@@ -73,25 +77,48 @@ def handle_device_update(ps5_id, data):
                 if publish_user_sensors_func:
                     publish_user_sensors_func(player)
     
-    # Handle activity changes
+    # Handle activity-based sessions - sessions are tied to user activity, not device power
+    # Session lifecycle:
+    # - activity transitions TO 'playing' = start session
+    # - activity transitions FROM 'playing' (to 'idle', 'none', or device goes offline) = end session
+    power = data.get('power')
+    device_status = data.get('device_status')
     activity = data.get('activity')
-    if activity == 'playing' and players:
-        # Start tracking session for active players
+    players = data.get('players', [])
+    
+    # Get previous activity state for this PS5 (stored in latest_device_status)
+    prev_activity = latest_device_status.get('activity') if latest_device_status.get('ps5_id') == ps5_id else None
+    
+    # Detect activity transition TO 'playing'
+    activity_transitioned_to_playing = (activity == 'playing' and prev_activity != 'playing')
+    # Detect activity transition FROM 'playing'
+    activity_transitioned_from_playing = (prev_activity == 'playing' and activity != 'playing')
+    
+    # Handle transition TO 'playing': Start session
+    if activity_transitioned_to_playing and players:
+        logger.info(f"Activity transitioned to 'playing' on PS5 {ps5_id} - starting session(s)")
         for player in players:
             if player:
+                # Check for existing session (shouldn't exist, but defensive)
+                existing_session = None
+                for session_id, session in time_manager.active_sessions.items():
+                    if session['user'] == player and session.get('ps5_id') == ps5_id:
+                        existing_session = session_id
+                        break
+                
+                if existing_session:
+                    logger.debug(f"Session already exists for {player} on PS5 {ps5_id}, skipping")
+                    continue
+                
                 game_name = data.get('title_name', 'Unknown Game')
-                # Policy: immediate enforcement if manual override or limit==0.
-                # Otherwise, if a warning is active due to time elapsed, let the countdown continue.
+                # Check access and limits
                 try:
-                    # Manual override path
                     if not time_manager.get_user_access(player):
                         logger.warning(f"Access disabled for {player}; applying shutdown policy")
                         apply_shutdown_policy_func(player, ps5_id, reason='access_disabled')
                         continue
-                    # Daily limit exhausted now (including zero)
                     lim_obj = time_manager.get_user_limit(player)
                     if lim_obj is not None:
-                        # Handle both dict and old format
                         if isinstance(lim_obj, dict):
                             lim = lim_obj.get('daily_limit_minutes')
                         else:
@@ -104,44 +131,56 @@ def handle_device_update(ps5_id, data):
                                 continue
                 except Exception:
                     pass
-                # Attempt to cache game image proactively
+                # Cache game image
                 try:
                     if data.get('title_image') and game_name:
                         time_manager.cache_game_image(game_name, data.get('title_image'))
                 except Exception:
                     pass
-                # Enforce access allowed toggle
+                # Check access again
                 if not time_manager.get_user_access(player):
                     logger.warning(f"Access blocked for {player}; enforcing action")
-                    # Trigger warning then shutdown instead of immediate
                     try:
                         start_shutdown_warning_func(player, ps5_id)
                     except Exception as e:
                         logger.error(f"Failed to start warning for {player}: {e}")
                     continue
-
+                
                 session_id = time_manager.start_session(player, game_name, ps5_id)
                 if session_id:
                     if debug_user_name and debug_user_name == player:
                         logger.info(f"[DEBUG:{player}] Session started (ID: {session_id}) for game {game_name}")
                     else:
                         logger.info(f"Started session for {player} playing {game_name} (ID: {session_id})")
-                # else: duplicate suppressed (logged in start_session)
-    elif activity in ['idle', 'none']:
-        # End sessions for this PS5
-        for session_id, session in list(time_manager.active_sessions.items()):
-            if session['ps5_id'] == ps5_id:
-                time_manager.end_session(session_id)
-                logger.info(f"Ended session for PS5 {ps5_id}")
     
-    # Handle power state
-    power = data.get('power')
-    if power == 'STANDBY':
-        # End all sessions for this PS5 when it goes to standby
+    # Handle transition FROM 'playing': End sessions
+    elif activity_transitioned_from_playing:
+        logger.info(f"Activity transitioned from 'playing' to '{activity}' on PS5 {ps5_id} - ending session(s)")
         for session_id, session in list(time_manager.active_sessions.items()):
             if session['ps5_id'] == ps5_id:
                 time_manager.end_session(session_id)
-                logger.info(f"Ended session due to PS5 {ps5_id} going to standby")
+                logger.info(f"Ended session due to activity change from 'playing' to '{activity}'")
+    
+    # Handle game updates while activity='playing' (game switches within same session)
+    elif activity == 'playing' and players:
+        # Update game name if it changed for existing sessions
+        for player in players:
+            if player:
+                for session_id, session in time_manager.active_sessions.items():
+                    if session['user'] == player and session.get('ps5_id') == ps5_id:
+                        current_game = data.get('title_name', 'Unknown Game')
+                        if session.get('game') != current_game:
+                            session['game'] = current_game
+                            logger.debug(f"Updated game for session: {player} now playing {current_game}")
+                        break
+    
+    # Also handle power state transitions as safety net - if device goes to STANDBY or offline, end sessions
+    if power == 'STANDBY' or (power == 'UNKNOWN' and device_status == 'offline'):
+        # Device went to sleep/offline - end any remaining sessions
+        for session_id, session in list(time_manager.active_sessions.items()):
+            if session['ps5_id'] == ps5_id:
+                time_manager.end_session(session_id)
+                logger.info(f"Ended session due to PS5 {ps5_id} going to {power}")
     
     # Update sensor states for all discovered users (only if MQTT is ready)
     if mqtt_connected and mqtt_client is not None:
