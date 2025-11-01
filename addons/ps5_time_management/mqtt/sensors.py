@@ -13,14 +13,12 @@ config = {}
 discovered_users = set()
 published_sensors = set()
 user_warning_until = {}
-# Track last published values to ensure we never decrease (for state_class: total sensors)
-last_published_values = {}  # {user: {'daily': 0, 'weekly': 0, 'monthly': 0, 'last_date': date}}
 
 
 def set_dependencies(tm, mqtt, mqtt_conn, cfg, discovered, published, warning_until):
     """Set dependencies for sensor publishing"""
     global time_manager, mqtt_client, mqtt_connected, config
-    global discovered_users, published_sensors, user_warning_until, last_published_values
+    global discovered_users, published_sensors, user_warning_until
     time_manager = tm
     mqtt_client = mqtt
     mqtt_connected = mqtt_conn
@@ -28,7 +26,6 @@ def set_dependencies(tm, mqtt, mqtt_conn, cfg, discovered, published, warning_un
     discovered_users = discovered
     published_sensors = published
     user_warning_until = warning_until
-    # last_published_values is already initialized at module level, no need to reinitialize
 
 
 def publish_user_sensors(user):
@@ -46,8 +43,7 @@ def publish_user_sensors(user):
             'state_topic': f'ps5_time_management/{user}/daily',
             'unit_of_measurement': 'min',
             'icon': 'mdi:clock-outline',
-            'device_class': 'duration',
-            'state_class': 'total'
+            'device_class': 'duration'
         },
         {
             'name': f'PS5 {user} Weekly Playtime',
@@ -55,8 +51,7 @@ def publish_user_sensors(user):
             'state_topic': f'ps5_time_management/{user}/weekly',
             'unit_of_measurement': 'min',
             'icon': 'mdi:calendar-week',
-            'device_class': 'duration',
-            'state_class': 'total'
+            'device_class': 'duration'
         },
         {
             'name': f'PS5 {user} Monthly Playtime',
@@ -64,8 +59,7 @@ def publish_user_sensors(user):
             'state_topic': f'ps5_time_management/{user}/monthly',
             'unit_of_measurement': 'min',
             'icon': 'mdi:calendar-month',
-            'device_class': 'duration',
-            'state_class': 'total'
+            'device_class': 'duration'
         },
         {
             'name': f'PS5 {user} Time Remaining',
@@ -83,11 +77,9 @@ def publish_user_sensors(user):
         },
         {
             'name': f'PS5 {user} Session Active',
-            'unique_id': f'ps5_time_management_{user.lower()}_session_active',
+            'unique_id': f'ps5_time_management_{user.lower()}_active',
             'state_topic': f'ps5_time_management/{user}/active',
-            'icon': 'mdi:play',
-            'binary_sensor': True,
-            'device_class': None  # No device class for generic binary sensor
+            'icon': 'mdi:play'
         },
         {
             'name': f'PS5 {user} Shutdown Warning',
@@ -120,8 +112,6 @@ def publish_user_sensors(user):
             sensor_config['unit_of_measurement'] = sensor['unit_of_measurement']
         if 'device_class' in sensor:
             sensor_config['device_class'] = sensor['device_class']
-        if 'state_class' in sensor:
-            sensor_config['state_class'] = sensor['state_class']
         if 'icon' in sensor:
             sensor_config['icon'] = sensor['icon']
         # Discovery domain override for binary_sensor
@@ -147,7 +137,6 @@ def update_all_sensor_states():
 
 def update_user_sensor_states(user):
     """Update MQTT sensor states for a specific user"""
-    global last_published_values
     try:
         if not mqtt_connected or mqtt_client is None:
             logger.debug(f"Deferring state publish for {user} until MQTT connected")
@@ -156,32 +145,6 @@ def update_user_sensor_states(user):
         daily_time = time_manager.get_user_time_today(user)
         weekly_time = time_manager.get_user_weekly_time(user)
         monthly_time = time_manager.get_user_monthly_time(user)
-        
-        # Ensure values never decrease (for state_class: total sensors)
-        # This prevents the graph from going down when calculation errors occur
-        # However, reset at midnight (new day) - check if date changed
-        from datetime import date
-        today = date.today()
-        
-        if user not in last_published_values:
-            last_published_values[user] = {'daily': 0, 'weekly': 0, 'monthly': 0, 'last_date': today}
-        
-        # If it's a new day, reset daily (but keep weekly/monthly as they span multiple days)
-        if last_published_values[user].get('last_date') != today:
-            last_published_values[user]['daily'] = 0
-            last_published_values[user]['last_date'] = today
-            logger.debug(f"New day detected for {user}, resetting daily playtime baseline")
-        
-        # Only increase values - never decrease (Home Assistant state_class: total expects this)
-        # But allow new day to reset daily value
-        daily_time = max(daily_time, last_published_values[user].get('daily', 0) if last_published_values[user].get('last_date') == today else 0)
-        weekly_time = max(weekly_time, last_published_values[user].get('weekly', 0))
-        monthly_time = max(monthly_time, last_published_values[user].get('monthly', 0))
-        
-        # Update last published values
-        last_published_values[user]['daily'] = daily_time
-        last_published_values[user]['weekly'] = weekly_time
-        last_published_values[user]['monthly'] = monthly_time
         
         # Get current session info
         current_session = None
@@ -204,8 +167,8 @@ def update_user_sensor_states(user):
         # Publish sensor states
         base_topic = f"ps5_time_management/{user}"
         
-        # Daily playtime (ensured to only increase)
-        mqtt_client.publish(f"{base_topic}/daily", str(int(daily_time)), retain=True)
+        # Daily playtime
+        mqtt_client.publish(f"{base_topic}/daily", str(daily_time), retain=True)
         
         # Weekly playtime
         mqtt_client.publish(f"{base_topic}/weekly", str(weekly_time), retain=True)
@@ -220,10 +183,9 @@ def update_user_sensor_states(user):
         current_game = current_session['game'] if current_session else 'None'
         mqtt_client.publish(f"{base_topic}/game", current_game, retain=True)
         
-        # Session active (binary sensor - retained so state persists after restart)
+        # Session active
         session_active = 'ON' if current_session else 'OFF'
         mqtt_client.publish(f"{base_topic}/active", session_active, retain=True)
-        logger.debug(f"Published session_active={session_active} for {user} (retained)")
         
         # Shutdown warning binary sensor
         warn_on = 'OFF'

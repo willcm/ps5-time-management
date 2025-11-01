@@ -44,7 +44,6 @@ def register_routes(flask_app, tm, discovered, mqtt_conn, mqtt_cli, publish_func
     register_limit_routes()
     register_session_routes()
     register_debug_routes()
-    register_standby_routes()
     register_mqtt_routes()
 
 
@@ -53,12 +52,7 @@ def register_health_routes():
     @app.route('/api/health', methods=['GET'])
     def health_check():
         """Health check endpoint"""
-        use_ha = time_manager.use_ha_history if time_manager else False
-        return jsonify({
-            'status': 'ok',
-            'service': 'ps5_time_management',
-            'use_ha_history': use_ha
-        })
+        return jsonify({'status': 'ok'})
 
 
 def register_status_routes():
@@ -468,37 +462,6 @@ def register_debug_routes():
         })
 
 
-def register_standby_routes():
-    """Register standby control routes"""
-    @app.route('/api/standby', methods=['POST'])
-    def api_standby():
-        """Send standby command to PS5"""
-        try:
-            data = request.get_json() or {}
-            ps5_id = data.get('ps5_id') or latest_device_status.get('ps5_id')
-            
-            if not ps5_id:
-                return jsonify({'error': 'PS5 ID not found'}), 400
-            
-            if not mqtt_client or not mqtt_connected:
-                return jsonify({'error': 'MQTT not connected'}), 503
-            
-            # Get topic prefix from config
-            from config.loader import load_config
-            config_dict = load_config()
-            topic_prefix = config_dict.get('mqtt_topic_prefix', 'ps5-mqtt')
-            
-            # Send standby command
-            standby_topic = f"{topic_prefix}/{ps5_id}/set/power"
-            mqtt_client.publish(standby_topic, "STANDBY", retain=False)
-            logger.info(f"Published STANDBY command to {standby_topic}")
-            
-            return jsonify({'success': True, 'message': f'Standby command sent to PS5 {ps5_id}'})
-        except Exception as e:
-            logger.error(f"/api/standby error: {e}")
-            return jsonify({'error': str(e)}), 500
-
-
 def register_mqtt_routes():
     """Register MQTT-related routes"""
     @app.route('/api/access/<user>', methods=['GET', 'POST'])
@@ -541,29 +504,6 @@ def register_mqtt_routes():
             publish_user_sensors_func(user)
             return jsonify({'republished': 1, 'user': user})
         except Exception as e:
-            return jsonify({'error': str(e)}), 500
-
-    @app.route('/api/cleanup/all', methods=['POST'])
-    def clear_all_stats():
-        """Clear all stats for all users (SQLite only - HA history must be cleared manually)"""
-        try:
-            from utils.data_cleanup import clear_all_user_data
-            # Import update_all_sensor_states from mqtt.sensors
-            from mqtt.sensors import update_all_sensor_states as _update_all_sensor_states
-            cleared_users = clear_all_user_data(
-                time_manager, 
-                discovered_users, 
-                _update_all_sensor_states
-            )
-            
-            return jsonify({
-                'status': 'success',
-                'message': f'Cleared SQLite stats for {len(cleared_users)} users',
-                'users': cleared_users,
-                'note': 'Note: Home Assistant history must be cleared manually via Developer Tools > Clear History if you want to remove all historical data.'
-            })
-        except Exception as e:
-            logger.error(f"Failed to clear all stats: {e}")
             return jsonify({'error': str(e)}), 500
 
     @app.route('/api/shutdown_events', methods=['GET'])

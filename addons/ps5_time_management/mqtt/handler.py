@@ -41,57 +41,25 @@ def set_dependencies(tm, mqtt, mqtt_conn, cfg, discovered, latest_status, debug_
 
 def handle_device_update(ps5_id, data):
     """Handle complete device update from ps5-mqtt"""
-    logger.debug(f"Processing device update for PS5 {ps5_id}: {data}")
+    logger.info(f"Processing device update for PS5 {ps5_id}: {data}")
     
     # Extract players from the message
     players = data.get('players', [])
     # Update latest device status snapshot
-    # IMPORTANT: Always update power state if present in the message, even if it's the only field
     try:
-        # Get current power state before update
-        current_power = latest_device_status.get('power')
-        new_power = data.get('power')
-        
-        # Always update power state if present, even if other fields are missing
-        if new_power:
-            logger.debug(f"Updating power state for PS5 {ps5_id}: {current_power} -> {new_power}")
-        
-        new_device_status = data.get('device_status')
-        
-        # According to ps5-mqtt docs: when offline, power should be "UNKNOWN" (not "STANDBY")
-        # device_status: "offline" means unreachable/powered off
-        # power: "UNKNOWN" means we don't know the state
-        # power: "STANDBY" means device is in rest mode and reachable
-        if new_device_status == 'offline':
-            # Preserve "UNKNOWN" if ps5-mqtt publishes it, or set it if power field is missing
-            if not new_power or new_power == 'STANDBY':
-                new_power = 'UNKNOWN'
-                logger.debug(f"Device {ps5_id} is offline - power should be UNKNOWN (not STANDBY)")
-        
         latest_device_status.update({
             'ps5_id': ps5_id,
-            'power': new_power if new_power else latest_device_status.get('power'),
-            'device_status': new_device_status if new_device_status else latest_device_status.get('device_status'),
+            'power': data.get('power', latest_device_status.get('power')),
+            'device_status': data.get('device_status', latest_device_status.get('device_status')),
             'activity': data.get('activity', latest_device_status.get('activity')),
             'players': players or [],
-            'title_id': data.get('title_id', latest_device_status.get('title_id')),
-            'title_name': data.get('title_name', latest_device_status.get('title_name')),
-            'title_image': data.get('title_image', latest_device_status.get('title_image')),
+            'title_id': data.get('title_id'),
+            'title_name': data.get('title_name'),
+            'title_image': data.get('title_image'),
             'last_update': datetime.now().isoformat()
         })
-        
-        # Ensure consistency: if offline, power should be UNKNOWN
-        if latest_device_status.get('device_status') == 'offline' and latest_device_status.get('power') not in ('UNKNOWN', None):
-            logger.debug(f"Device {ps5_id} status is offline - correcting power to UNKNOWN (was {latest_device_status.get('power')})")
-            latest_device_status['power'] = 'UNKNOWN'
         # Update the models module so PS5TimeManager can access it
         set_latest_device_status(latest_device_status)
-        
-        # Log power state change with WARNING level for visibility (will be colored orange in logs)
-        if new_power and new_power != current_power:
-            logger.warning(f"🔌 Power state changed for PS5 {ps5_id}: {current_power or 'None'} -> {new_power}")
-            # Also log to INFO for compatibility, but WARNING is the highlighted one
-            logger.info(f"Power state changed for PS5 {ps5_id}: {current_power or 'None'} -> {new_power}")
     except Exception as e:
         logger.warning(f"Failed updating latest device status: {e}")
     if players:
@@ -106,14 +74,7 @@ def handle_device_update(ps5_id, data):
                     publish_user_sensors_func(player)
     
     # Handle activity changes
-    # According to ps5-mqtt docs:
-    # - activity: "playing" = PS5 is AWAKE and has active game (players array present)
-    # - activity: "idle" = PS5 is AWAKE but no active game (players array NOT present)
-    # - activity: "none" = PS5 is in STANDBY or UNKNOWN
     activity = data.get('activity')
-    
-    logger.debug(f"Device {ps5_id} activity: {activity}, power: {latest_device_status.get('power')}, players: {players}")
-    
     if activity == 'playing' and players:
         # Start tracking session for active players
         for player in players:
@@ -159,85 +120,28 @@ def handle_device_update(ps5_id, data):
                         logger.error(f"Failed to start warning for {player}: {e}")
                     continue
 
-                # Check for restored sessions and replace them with proper sessions
-                for sid, session in list(time_manager.active_sessions.items()):
-                    if session['user'] == player and session.get('restored'):
-                        # Replace restored session with proper one
-                        del time_manager.active_sessions[sid]
-                        logger.debug(f"Replaced restored session for {player} with proper session from device update")
-                        break
-                
                 session_id = time_manager.start_session(player, game_name, ps5_id)
                 if session_id:
                     if debug_user_name and debug_user_name == player:
                         logger.info(f"[DEBUG:{player}] Session started (ID: {session_id}) for game {game_name}")
                     else:
-                        logger.debug(f"Started session for {player} playing {game_name} (ID: {session_id})")
-                
-                # Always update heartbeat for active players (whether new or existing session)
-                time_manager.update_session_heartbeat(player, ps5_id)
-    elif activity == 'idle':
-        # Device is AWAKE but no active game
-        # According to ps5-mqtt docs: when idle, players array is NOT present (empty or missing)
-        # End all sessions for this PS5 since there's no active game
-        logger.debug(f"Device {ps5_id} is AWAKE but idle (no active game) - ending all sessions")
-        current_players = set(players or [])
+                        logger.info(f"Started session for {player} playing {game_name} (ID: {session_id})")
+                # else: duplicate suppressed (logged in start_session)
+    elif activity in ['idle', 'none']:
+        # End sessions for this PS5
         for session_id, session in list(time_manager.active_sessions.items()):
             if session['ps5_id'] == ps5_id:
-                session_user = session['user']
-                # End session - device is idle, no game active
                 time_manager.end_session(session_id)
-                logger.debug(f"Ended session for {session_user} on PS5 {ps5_id} (device is idle)")
-    elif activity == 'none':
-        # Device is in STANDBY or UNKNOWN - this is handled by power state check below
-        logger.debug(f"Device {ps5_id} activity is 'none' (power state: {latest_device_status.get('power')})")
+                logger.info(f"Ended session for PS5 {ps5_id}")
     
-    # Handle power state and device_status - check this early and always process it
-    # According to ps5-mqtt documentation:
-    # - power: "STANDBY" = device in rest mode, reachable, can be woken
-    # - power: "UNKNOWN" + device_status: "offline" = device unreachable/powered off
-    # Both cases should end sessions, but are different states
+    # Handle power state
     power = data.get('power')
-    device_status = data.get('device_status')
-    
-    # Use the power value from latest_device_status (which we just updated) to get correct value
-    # This ensures we use "UNKNOWN" for offline, not "STANDBY"
-    actual_power = latest_device_status.get('power', power)
-    actual_device_status = latest_device_status.get('device_status', device_status)
-    
-    # End sessions when device goes to STANDBY or becomes offline (UNKNOWN)
-    should_end_sessions = False
-    reason = None
-    
-    if actual_power == 'STANDBY':
-        # Device is in rest mode (reachable)
-        should_end_sessions = True
-        reason = "standby"
-        logger.warning(f"🔌 PS5 {ps5_id} detected in STANDBY mode - ending all sessions")
-    elif actual_device_status == 'offline' or actual_power == 'UNKNOWN':
-        # Device is unreachable/powered off (not in rest mode)
-        should_end_sessions = True
-        reason = "offline"
-        logger.info(f"PS5 {ps5_id} is offline/unreachable (power: {actual_power}) - ending sessions")
-    
-    if should_end_sessions:
-        # End all sessions for this PS5 when it goes to standby or offline
-        sessions_ended = []
+    if power == 'STANDBY':
+        # End all sessions for this PS5 when it goes to standby
         for session_id, session in list(time_manager.active_sessions.items()):
-            if session['ps5_id'] == ps5_id or session.get('ps5_id') == 'unknown':
-                # End session - either matches this PS5 or is a restored session with unknown PS5
+            if session['ps5_id'] == ps5_id:
                 time_manager.end_session(session_id)
-                sessions_ended.append(session_id)
-                logger.debug(f"Ended session {session_id} due to PS5 {ps5_id} going to {reason}")
-        
-        if sessions_ended:
-            logger.debug(f"Ended {len(sessions_ended)} session(s) due to PS5 {ps5_id} going to {reason}")
-        
-        # Clear all restored sessions when device is STANDBY or offline
-        restored_sessions = [sid for sid, s in time_manager.active_sessions.items() if s.get('restored')]
-        for sid in restored_sessions:
-            time_manager.end_session(sid)
-            logger.debug(f"Cleared restored session {sid} because device is {reason}")
+                logger.info(f"Ended session due to PS5 {ps5_id} going to standby")
     
     # Update sensor states for all discovered users (only if MQTT is ready)
     if mqtt_connected and mqtt_client is not None:

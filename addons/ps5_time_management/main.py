@@ -131,11 +131,6 @@ def on_connect(client, userdata, flags, reason_code, properties):
     mqtt_connected = True
     logger.info(f"MQTT on_connect callback: reason_code={reason_code}, flags={flags}")
     
-    # Update time_manager with MQTT client reference FIRST (needed for session restoration)
-    if time_manager:
-        time_manager.mqtt_client = mqtt_client
-        logger.debug("Updated time_manager.mqtt_client reference")
-    
     # Update shutdown manager with connected client
     set_shutdown_dependencies(time_manager, mqtt_client, True, config)
     
@@ -166,22 +161,6 @@ def on_connect(client, userdata, flags, reason_code, properties):
         client.subscribe(subscribe_topic)
         
         logger.info(f"Subscribed to MQTT topics with prefix: {topic_prefix}")
-        
-        # Restore active sessions from MQTT retained messages before publishing states
-        # This ensures time calculations are accurate immediately after restart
-        try:
-            if time_manager and discovered_users and mqtt_client:
-                logger.info("Restoring active sessions from MQTT retained messages...")
-                for user in list(discovered_users):
-                    # Trigger restoration by calling get_user_time_today (which will check retained messages)
-                    # This will restore sessions if they exist in retained state
-                    try:
-                        time_manager.get_user_time_today(user)
-                    except Exception as e:
-                        logger.debug(f"Error checking retained state for {user}: {e}")
-        except Exception as e:
-            logger.warning(f"Failed to restore sessions from retained messages: {e}")
-        
         # Publish discovery for all known users now that we're connected
         try:
             if discovered_users:
@@ -199,34 +178,26 @@ def on_message(client, userdata, msg):
     topic = msg.topic
     payload = msg.payload.decode('utf-8')
     
-    # Parse topic to check if we should ignore it BEFORE logging
-    parts = topic.split('/')
-    
-    # Ignore our own sensor state topics (these are plain strings, not JSON)
-    if len(parts) >= 2 and parts[0] == 'ps5_time_management':
-        # This is one of our own sensor state topics (e.g., ps5_time_management/Thomas/active)
-        # These are plain string values like "ON"/"OFF", not JSON - just ignore silently
-        logger.debug(f"Ignoring our own sensor state topic: {topic}")
-        return
-    
-    # Log MQTT messages we actually process (at debug level to reduce noise)
-    logger.debug(f"MQTT MESSAGE RECEIVED - Topic: {topic}, Payload: {payload}")
+    # Log ALL MQTT messages we receive
+    logger.info(f"MQTT MESSAGE RECEIVED - Topic: {topic}, Payload: {payload}")
     
     try:
+        # Parse topic to get PS5 ID and early-ignore non-JSON topics
+        parts = topic.split('/')
         # Ignore our own command/set subtopics before attempting JSON parse
         if len(parts) >= 3 and parts[2] in ('command', 'set'):
             return
         
         data = json.loads(payload)
-        logger.debug(f"Parsed MQTT data: {data}")
+        logger.info(f"Parsed MQTT data: {data}")
         
         if len(parts) >= 2:
             ps5_id = parts[1]
-            logger.debug(f"Extracted PS5 ID: {ps5_id}")
+            logger.info(f"Extracted PS5 ID: {ps5_id}")
             
             # Handle the main ps5-mqtt/{device_id} topic which contains all device info
             if len(parts) == 2 and parts[0] == 'ps5-mqtt':
-                logger.debug(f"Processing as device update for PS5 {ps5_id}")
+                logger.info(f"Processing as device update for PS5 {ps5_id}")
                 handle_device_update(ps5_id, data)
             else:
                 logger.debug(f"Ignoring non-device topic: {parts}")
@@ -301,8 +272,16 @@ def load_config():
     # Set per-user debug if provided
     debug_user_name = config_dict.get('debug_user')
     
-    # Note: clear_all_stats handling is deferred until after time_manager is initialized
-    # This prevents 'NoneType' object has no attribute 'db_path' errors
+    # Handle clear_all_stats option
+    if config_dict.get('clear_all_stats', False):
+        logger.warning("Clear all stats option detected - clearing all user data")
+        clear_all_user_data()
+        # Reset the option to prevent repeated clearing
+        config_dict['clear_all_stats'] = False
+        config_path = '/data/options.json'
+        with open(config_path, 'w') as f:
+            json.dump(config_dict, f, indent=2)
+        logger.info("Cleared all stats and reset option")
     
     return config_dict
 
@@ -318,48 +297,9 @@ def main():
     config = load_config()
     logger.info("Configuration loaded")
     
-    # Initialize HA client if enabled
-    ha_client = None
-    use_ha_history = config.get('use_ha_history', True)
-    if use_ha_history:
-        try:
-            from ha.client import HomeAssistantClient
-            ha_url = config.get('ha_api_url', 'http://supervisor')
-            # Supervisor automatically provides SUPERVISOR_TOKEN to add-ons
-            # It's available in the environment, no manual config needed
-            ha_token = config.get('ha_api_token', '') or os.environ.get('SUPERVISOR_TOKEN')
-            if not ha_token:
-                logger.warning("SUPERVISOR_TOKEN not found in environment - HA history features will use SQLite fallback")
-                logger.debug("This is normal if not running in Supervisor context")
-            ha_client = HomeAssistantClient(base_url=ha_url, token=ha_token)
-            if ha_client.is_available():
-                logger.info("Home Assistant API client initialized successfully")
-            else:
-                logger.warning("Home Assistant API not available, will use SQLite fallback")
-        except Exception as e:
-            logger.warning(f"Failed to initialize HA client: {e}, will use SQLite fallback")
-    
-    # Initialize time manager (will update mqtt_client reference after connection)
+    # Initialize time manager
     db_path = config.get('database_path', '/data/ps5_time_management.db')
-    mqtt_config_for_tm = get_mqtt_config()
-    time_manager = PS5TimeManager(db_path, ha_client=ha_client, use_ha_history=use_ha_history, 
-                                   mqtt_client=None, mqtt_config=mqtt_config_for_tm)
-    
-    # Handle clear_all_stats option now that time_manager is initialized
-    if config.get('clear_all_stats', False):
-        logger.warning("Clear all stats option detected - clearing all user data")
-        try:
-            clear_all_user_data()
-            config['clear_all_stats'] = False
-            # Save updated config
-            try:
-                with open('/data/options.json', 'w') as f:
-                    json.dump(config, f, indent=2)
-            except Exception as e:
-                logger.warning(f"Failed to save updated config: {e}")
-            logger.info("Cleared all stats and reset option")
-        except Exception as e:
-            logger.error(f"Failed to clear all stats: {e}")
+    time_manager = PS5TimeManager(db_path)
     
     # Register all Flask routes now that time_manager is initialized
     register_all_routes()

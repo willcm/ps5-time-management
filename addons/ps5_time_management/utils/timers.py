@@ -8,8 +8,6 @@ logger = logging.getLogger(__name__)
 def check_timers(time_manager, config, apply_shutdown_policy_func):
     """Background thread to check timers and enforce limits
     
-    Also checks for stale sessions and ends them if they haven't received MQTT updates.
-    
     Args:
         time_manager: PS5TimeManager instance
         config: Configuration dictionary
@@ -18,10 +16,6 @@ def check_timers(time_manager, config, apply_shutdown_policy_func):
     while True:
         try:
             time.sleep(60)  # Check every minute
-            
-            # First, check for stale sessions (sessions without MQTT updates)
-            session_timeout_minutes = config.get('session_timeout_minutes', 5)
-            time_manager.check_stale_sessions(timeout_minutes=session_timeout_minutes)
             
             for session_id, session in list(time_manager.active_sessions.items()):
                 user = session['user']
