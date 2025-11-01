@@ -56,11 +56,17 @@ def handle_device_update(ps5_id, data):
         if new_power:
             logger.debug(f"Updating power state for PS5 {ps5_id}: {current_power} -> {new_power}")
         
-        # If device_status is offline, override power to STANDBY if not explicitly set
         new_device_status = data.get('device_status')
-        if new_device_status == 'offline' and not new_power:
-            new_power = 'STANDBY'
-            logger.debug(f"Device {ps5_id} is offline - setting power to STANDBY")
+        
+        # According to ps5-mqtt docs: when offline, power should be "UNKNOWN" (not "STANDBY")
+        # device_status: "offline" means unreachable/powered off
+        # power: "UNKNOWN" means we don't know the state
+        # power: "STANDBY" means device is in rest mode and reachable
+        if new_device_status == 'offline':
+            # Preserve "UNKNOWN" if ps5-mqtt publishes it, or set it if power field is missing
+            if not new_power or new_power == 'STANDBY':
+                new_power = 'UNKNOWN'
+                logger.debug(f"Device {ps5_id} is offline - power should be UNKNOWN (not STANDBY)")
         
         latest_device_status.update({
             'ps5_id': ps5_id,
@@ -74,10 +80,10 @@ def handle_device_update(ps5_id, data):
             'last_update': datetime.now().isoformat()
         })
         
-        # If device_status is offline, ensure power is STANDBY
-        if latest_device_status.get('device_status') == 'offline' and latest_device_status.get('power') != 'STANDBY':
-            logger.debug(f"Device {ps5_id} status is offline but power wasn't STANDBY - correcting")
-            latest_device_status['power'] = 'STANDBY'
+        # Ensure consistency: if offline, power should be UNKNOWN
+        if latest_device_status.get('device_status') == 'offline' and latest_device_status.get('power') not in ('UNKNOWN', None):
+            logger.debug(f"Device {ps5_id} status is offline - correcting power to UNKNOWN (was {latest_device_status.get('power')})")
+            latest_device_status['power'] = 'UNKNOWN'
         # Update the models module so PS5TimeManager can access it
         set_latest_device_status(latest_device_status)
         
@@ -176,33 +182,51 @@ def handle_device_update(ps5_id, data):
                     # User still playing - update heartbeat
                     time_manager.update_session_heartbeat(session_user, ps5_id)
     
-    # Handle power state - check this early and always process it
+    # Handle power state and device_status - check this early and always process it
+    # According to ps5-mqtt documentation:
+    # - power: "STANDBY" = device in rest mode, reachable, can be woken
+    # - power: "UNKNOWN" + device_status: "offline" = device unreachable/powered off
+    # Both cases should end sessions, but are different states
     power = data.get('power')
-    if power == 'STANDBY':
-        # End all sessions for this PS5 when it goes to standby
+    device_status = data.get('device_status')
+    
+    # Use the power value from latest_device_status (which we just updated) to get correct value
+    # This ensures we use "UNKNOWN" for offline, not "STANDBY"
+    actual_power = latest_device_status.get('power', power)
+    actual_device_status = latest_device_status.get('device_status', device_status)
+    
+    # End sessions when device goes to STANDBY or becomes offline (UNKNOWN)
+    should_end_sessions = False
+    reason = None
+    
+    if actual_power == 'STANDBY':
+        # Device is in rest mode (reachable)
+        should_end_sessions = True
+        reason = "standby"
+    elif actual_device_status == 'offline' or actual_power == 'UNKNOWN':
+        # Device is unreachable/powered off (not in rest mode)
+        should_end_sessions = True
+        reason = "offline"
+        logger.info(f"PS5 {ps5_id} is offline/unreachable (power: {actual_power}) - ending sessions")
+    
+    if should_end_sessions:
+        # End all sessions for this PS5 when it goes to standby or offline
         sessions_ended = []
         for session_id, session in list(time_manager.active_sessions.items()):
             if session['ps5_id'] == ps5_id or session.get('ps5_id') == 'unknown':
                 # End session - either matches this PS5 or is a restored session with unknown PS5
                 time_manager.end_session(session_id)
                 sessions_ended.append(session_id)
-                logger.info(f"Ended session {session_id} due to PS5 {ps5_id} going to standby")
+                logger.info(f"Ended session {session_id} due to PS5 {ps5_id} going to {reason}")
         
         if sessions_ended:
-            logger.info(f"Ended {len(sessions_ended)} session(s) due to PS5 {ps5_id} going to standby")
-    
-    # Also check power state for any restored sessions with unknown PS5
-    # This handles cases where we restored a session but the device is actually in standby
-    if power and power != 'STANDBY':
-        # Device is not in standby, but check for stale restored sessions
-        # (sessions that were restored but device update hasn't come yet)
-        pass  # Will be handled when actual activity/players update arrives
-    elif power == 'STANDBY':
-        # Device is in standby - ensure all restored sessions are cleared
+            logger.info(f"Ended {len(sessions_ended)} session(s) due to PS5 {ps5_id} going to {reason}")
+        
+        # Clear all restored sessions when device is STANDBY or offline
         restored_sessions = [sid for sid, s in time_manager.active_sessions.items() if s.get('restored')]
         for sid in restored_sessions:
             time_manager.end_session(sid)
-            logger.info(f"Cleared restored session {sid} because device is in STANDBY")
+            logger.info(f"Cleared restored session {sid} because device is {reason}")
     
     # Update sensor states for all discovered users (only if MQTT is ready)
     if mqtt_connected and mqtt_client is not None:
