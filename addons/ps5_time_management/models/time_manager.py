@@ -40,6 +40,8 @@ class PS5TimeManager:
         self._ha_available = None  # Cache HA availability check
         self.mqtt_client = mqtt_client
         self.mqtt_config = mqtt_config or {}
+        # Track recently ended sessions (within last 10 seconds) to account for HA history delay
+        self.recently_ended_sessions = {}  # {user: [(start_time, end_time, minutes), ...]}
     
     def add_user_if_new(self, user: str) -> None:
         """Persist a discovered user if not already stored."""
@@ -303,6 +305,23 @@ class PS5TimeManager:
         start_time = session['start_time']
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
+        duration_minutes = duration / 60.0
+        
+        # Track recently ended session to account for HA history processing delay
+        # Keep for 10 seconds - HA should have processed by then
+        if user not in self.recently_ended_sessions:
+            self.recently_ended_sessions[user] = []
+        self.recently_ended_sessions[user].append({
+            'start_time': start_time,
+            'end_time': end_time,
+            'duration_minutes': duration_minutes
+        })
+        # Clean up old entries (older than 10 seconds)
+        cutoff_time = datetime.now() - timedelta(seconds=10)
+        self.recently_ended_sessions[user] = [
+            s for s in self.recently_ended_sessions[user] 
+            if s['end_time'] > cutoff_time
+        ]
         
         # Save minimal session record to database (for reference only)
         # Stats are tracked in HA history, not SQLite
@@ -347,6 +366,36 @@ class PS5TimeManager:
                 from ha.history import get_daily_time_from_ha
                 ha_time = get_daily_time_from_ha(self.ha_client, user, today_date)
                 logger.debug(f"User {user} time today from HA: {ha_time:.1f} min")
+                
+                # Add time from recently ended sessions (to account for HA history processing delay)
+                # This ensures we don't lose time immediately after ending a session
+                if user in self.recently_ended_sessions:
+                    recent_time = 0.0
+                    for ended_session in self.recently_ended_sessions[user]:
+                        # Only count sessions that ended today
+                        if ended_session['end_time'].date() == today_date:
+                            # Check if this time is already in HA history
+                            # If HA time is less than expected, add the missing time
+                            session_start_date = ended_session['start_time'].date()
+                            if session_start_date == today_date:
+                                # Full session was today - check if HA has it
+                                recent_time += ended_session['duration_minutes']
+                            else:
+                                # Session started yesterday - only count today's portion
+                                today_start = datetime.combine(today_date, datetime.min.time())
+                                today_duration = (ended_session['end_time'] - today_start).total_seconds() / 60.0
+                                recent_time += max(0, today_duration)
+                    
+                    # Only add recent time if HA history seems incomplete (less than expected)
+                    # This is a heuristic - if HA time is 0 but we just ended a session, include it
+                    if recent_time > 0:
+                        # Check if we should add this time (if HA hasn't caught up yet)
+                        # If HA time is suspiciously low (0 or very small) and we have recent sessions, add them
+                        if ha_time == 0 or (ha_time < recent_time * 0.5):  # HA has less than 50% of expected
+                            logger.debug(f"Adding {recent_time:.1f} min from recently ended sessions for {user} (HA may not have processed yet)")
+                            ha_time += recent_time
+                        else:
+                            logger.debug(f"HA history looks complete for {user}, not adding recent session time")
                 
                 # Add active session time (HA only tracks completed sessions)
                 active_time = 0
