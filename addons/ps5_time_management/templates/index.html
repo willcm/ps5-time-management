@@ -66,6 +66,7 @@
       power = String(power).toUpperCase();
       if (power === 'AWAKE') return 'bg-green-600 text-white';
       if (power === 'STANDBY') return 'bg-zinc-600 text-white';
+      if (power === 'UNKNOWN') return 'bg-red-600 text-white';  // Offline/unreachable
       return 'bg-zinc-700 text-white';
     }
     let currentPs5Id = null;
