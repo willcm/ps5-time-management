@@ -699,7 +699,7 @@ class PS5TimeManager:
                 
                 total_time = ha_time + active_time
                 logger.info(f"User {user} weekly time: {ha_time:.1f} min (HA) + {active_time:.1f} min active = {total_time:.1f} min total")
-                return int(round(total_time))
+                return int(total_time)  # Use int() (floor) - only increment when full minute elapsed
             except Exception as e:
                 logger.warning(f"Failed to get weekly time from HA, falling back to SQLite: {e}")
         
@@ -727,7 +727,7 @@ class PS5TimeManager:
         
         total_time = completed_time + active_time
         logger.info(f"User {user} weekly time (SQLite): {completed_time} min completed + {active_time:.1f} min active = {total_time:.1f} min total")
-        return int(round(total_time))
+        return int(total_time)  # Use int() (floor) - only increment when full minute elapsed
     
     def get_user_monthly_time(self, user):
         """Get total time played this month by user
@@ -758,7 +758,7 @@ class PS5TimeManager:
                 
                 total_time = ha_time + active_time
                 logger.info(f"User {user} monthly time: {ha_time:.1f} min (HA) + {active_time:.1f} min active = {total_time:.1f} min total")
-                return int(round(total_time))
+                return int(total_time)  # Use int() (floor) - only increment when full minute elapsed
             except Exception as e:
                 logger.warning(f"Failed to get monthly time from HA, falling back to SQLite: {e}")
         
@@ -786,7 +786,7 @@ class PS5TimeManager:
         
         total_time = completed_time + active_time
         logger.info(f"User {user} monthly time (SQLite): {completed_time} min completed + {active_time:.1f} min active = {total_time:.1f} min total")
-        return int(round(total_time))
+        return int(total_time)  # Use int() (floor) - only increment when full minute elapsed
     
     def get_top_games(self, user, days=30, limit=10):
         """Get top games played by user in the last N days, with images when available
@@ -921,7 +921,7 @@ class PS5TimeManager:
                         active_time += elapsed / 60
                 
                 total_time = ha_time + active_time
-                return int(round(total_time))
+                return int(total_time)  # Use int() (floor) - only increment when full minute elapsed
             except Exception as e:
                 logger.warning(f"Failed to get game time from HA, falling back to SQLite: {e}")
         
@@ -946,7 +946,7 @@ class PS5TimeManager:
                 active_time += elapsed / 60
         
         total_time = completed_time + active_time
-        return int(round(total_time))
+        return int(total_time)  # Use int() (floor) - only increment when full minute elapsed
     
     def get_game_time_weekly(self, user, game):
         """Get time played for a specific game this week
@@ -975,7 +975,7 @@ class PS5TimeManager:
                             active_time += elapsed / 60
                 
                 total_time = ha_time + active_time
-                return int(round(total_time))
+                return int(total_time)  # Use int() (floor) - only increment when full minute elapsed
             except Exception as e:
                 logger.warning(f"Failed to get game weekly time from HA, falling back to SQLite: {e}")
         
@@ -1000,7 +1000,7 @@ class PS5TimeManager:
                 active_time += elapsed / 60
         
         total_time = completed_time + active_time
-        return int(round(total_time))
+        return int(total_time)  # Use int() (floor) - only increment when full minute elapsed
     
     def get_game_time_monthly(self, user, game):
         """Get time played for a specific game this month
@@ -1033,7 +1033,7 @@ class PS5TimeManager:
                             active_time += elapsed / 60
                 
                 total_time = ha_time + active_time
-                return int(round(total_time))
+                return int(total_time)  # Use int() (floor) - only increment when full minute elapsed
             except Exception as e:
                 logger.warning(f"Failed to get game monthly time from HA, falling back to SQLite: {e}")
         
@@ -1058,7 +1058,7 @@ class PS5TimeManager:
                 active_time += elapsed / 60
         
         total_time = completed_time + active_time
-        return int(round(total_time))
+        return int(total_time)  # Use int() (floor) - only increment when full minute elapsed
     
     def get_all_games_stats(self, user):
         """Get stats for all games played by user, organized by period
