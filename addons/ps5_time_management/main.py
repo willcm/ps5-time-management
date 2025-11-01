@@ -272,16 +272,8 @@ def load_config():
     # Set per-user debug if provided
     debug_user_name = config_dict.get('debug_user')
     
-    # Handle clear_all_stats option
-    if config_dict.get('clear_all_stats', False):
-        logger.warning("Clear all stats option detected - clearing all user data")
-        clear_all_user_data()
-        # Reset the option to prevent repeated clearing
-        config_dict['clear_all_stats'] = False
-        config_path = '/data/options.json'
-        with open(config_path, 'w') as f:
-            json.dump(config_dict, f, indent=2)
-        logger.info("Cleared all stats and reset option")
+    # Note: clear_all_stats handling is deferred until after time_manager is initialized
+    # This prevents 'NoneType' object has no attribute 'db_path' errors
     
     return config_dict
 
@@ -321,6 +313,22 @@ def main():
     # Initialize time manager
     db_path = config.get('database_path', '/data/ps5_time_management.db')
     time_manager = PS5TimeManager(db_path, ha_client=ha_client, use_ha_history=use_ha_history)
+    
+    # Handle clear_all_stats option now that time_manager is initialized
+    if config.get('clear_all_stats', False):
+        logger.warning("Clear all stats option detected - clearing all user data")
+        try:
+            clear_all_user_data()
+            config['clear_all_stats'] = False
+            # Save updated config
+            try:
+                with open('/data/options.json', 'w') as f:
+                    json.dump(config, f, indent=2)
+            except Exception as e:
+                logger.warning(f"Failed to save updated config: {e}")
+            logger.info("Cleared all stats and reset option")
+        except Exception as e:
+            logger.error(f"Failed to clear all stats: {e}")
     
     # Register all Flask routes now that time_manager is initialized
     register_all_routes()
