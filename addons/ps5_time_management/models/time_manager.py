@@ -527,9 +527,9 @@ class PS5TimeManager:
                     if not session_active_state and self.ha_client:
                         try:
                             entity_id = f"binary_sensor.ps5_time_management_{user.lower()}_session_active"
-                            logger.info(f"Checking binary sensor state in HA for {user}: {entity_id}")
+                            logger.debug(f"Checking binary sensor state in HA for {user}: {entity_id}")
                             current_state = self.ha_client.get_state(entity_id)
-                            logger.info(f"Binary sensor state response for {user}: {current_state}")
+                            logger.debug(f"Binary sensor state response for {user}: {current_state}")
                             if current_state and current_state.get('state', '').upper() == 'ON':
                                 session_active_state = 'ON'
                                 # Use HA's last_changed timestamp
@@ -621,7 +621,7 @@ class PS5TimeManager:
                         logger.debug(f"Could not determine session active state for {user} - sensor may not exist yet or is not available")
                 
                 total_time = ha_time + active_time
-                logger.info(f"User {user} time today: {ha_time:.1f} min (HA) + {active_time:.1f} min active = {total_time:.1f} min total")
+                logger.debug(f"User {user} time today: {ha_time:.1f} min (HA) + {active_time:.1f} min active = {total_time:.1f} min total")
                 # Ensure we don't return 0 if HA history exists but calculation might be incomplete
                 # If we have HA history but total is 0, and there's an active session, use active time
                 if ha_time == 0 and active_time > 0:
@@ -698,7 +698,7 @@ class PS5TimeManager:
                             active_time += elapsed / 60
                 
                 total_time = ha_time + active_time
-                logger.info(f"User {user} weekly time: {ha_time:.1f} min (HA) + {active_time:.1f} min active = {total_time:.1f} min total")
+                logger.debug(f"User {user} weekly time: {ha_time:.1f} min (HA) + {active_time:.1f} min active = {total_time:.1f} min total")
                 return int(total_time)  # Use int() (floor) - only increment when full minute elapsed
             except Exception as e:
                 logger.warning(f"Failed to get weekly time from HA, falling back to SQLite: {e}")
@@ -757,7 +757,7 @@ class PS5TimeManager:
                             active_time += elapsed / 60
                 
                 total_time = ha_time + active_time
-                logger.info(f"User {user} monthly time: {ha_time:.1f} min (HA) + {active_time:.1f} min active = {total_time:.1f} min total")
+                logger.debug(f"User {user} monthly time: {ha_time:.1f} min (HA) + {active_time:.1f} min active = {total_time:.1f} min total")
                 return int(total_time)  # Use int() (floor) - only increment when full minute elapsed
             except Exception as e:
                 logger.warning(f"Failed to get monthly time from HA, falling back to SQLite: {e}")
