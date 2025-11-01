@@ -13,12 +13,14 @@ config = {}
 discovered_users = set()
 published_sensors = set()
 user_warning_until = {}
+# Track last published values to ensure we never decrease (for state_class: total sensors)
+last_published_values = {}  # {user: {'daily': 0, 'weekly': 0, 'monthly': 0, 'last_date': date}}
 
 
 def set_dependencies(tm, mqtt, mqtt_conn, cfg, discovered, published, warning_until):
     """Set dependencies for sensor publishing"""
     global time_manager, mqtt_client, mqtt_connected, config
-    global discovered_users, published_sensors, user_warning_until
+    global discovered_users, published_sensors, user_warning_until, last_published_values
     time_manager = tm
     mqtt_client = mqtt
     mqtt_connected = mqtt_conn
@@ -26,6 +28,7 @@ def set_dependencies(tm, mqtt, mqtt_conn, cfg, discovered, published, warning_un
     discovered_users = discovered
     published_sensors = published
     user_warning_until = warning_until
+    # last_published_values is already initialized at module level, no need to reinitialize
 
 
 def publish_user_sensors(user):
