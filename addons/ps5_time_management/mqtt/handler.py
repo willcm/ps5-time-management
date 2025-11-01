@@ -46,20 +46,33 @@ def handle_device_update(ps5_id, data):
     # Extract players from the message
     players = data.get('players', [])
     # Update latest device status snapshot
+    # IMPORTANT: Always update power state if present in the message, even if it's the only field
     try:
+        # Get current power state before update
+        current_power = latest_device_status.get('power')
+        new_power = data.get('power')
+        
+        # Always update power state if present, even if other fields are missing
+        if new_power:
+            logger.debug(f"Updating power state for PS5 {ps5_id}: {current_power} -> {new_power}")
+        
         latest_device_status.update({
             'ps5_id': ps5_id,
-            'power': data.get('power', latest_device_status.get('power')),
+            'power': new_power if new_power else latest_device_status.get('power'),
             'device_status': data.get('device_status', latest_device_status.get('device_status')),
             'activity': data.get('activity', latest_device_status.get('activity')),
             'players': players or [],
-            'title_id': data.get('title_id'),
-            'title_name': data.get('title_name'),
-            'title_image': data.get('title_image'),
+            'title_id': data.get('title_id', latest_device_status.get('title_id')),
+            'title_name': data.get('title_name', latest_device_status.get('title_name')),
+            'title_image': data.get('title_image', latest_device_status.get('title_image')),
             'last_update': datetime.now().isoformat()
         })
         # Update the models module so PS5TimeManager can access it
         set_latest_device_status(latest_device_status)
+        
+        # Log power state change
+        if new_power and new_power != current_power:
+            logger.info(f"Power state changed for PS5 {ps5_id}: {current_power} -> {new_power}")
     except Exception as e:
         logger.warning(f"Failed updating latest device status: {e}")
     if players:
