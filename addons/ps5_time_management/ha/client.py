@@ -21,28 +21,37 @@ class HomeAssistantClient:
         """
         # Try to get from environment (add-on context)
         self.base_url = base_url or os.environ.get('SUPERVISOR_API', 'http://supervisor')
-        # Try supervisor first, then fallback to homeassistant:8123
-        if self.base_url == 'http://supervisor':
-            # In add-on context, supervisor provides HA API at /homeassistant/api
+        self.supervisor_token = token or os.environ.get('SUPERVISOR_TOKEN') or os.environ.get('HA_TOKEN')
+        
+        # When using supervisor API, SUPERVISOR_TOKEN is required for authentication
+        # Supervisor provides this token automatically to add-ons via environment
+        if self.base_url == 'http://supervisor' or 'supervisor' in self.base_url:
+            # Use /homeassistant/api endpoint (supervisor API path to HA Core)
+            # Note: /core/api is not the correct path - use /homeassistant/api
             self.api_base = f"{self.base_url}/homeassistant/api"
-        elif 'supervisor' in self.base_url:
-            # Alternative supervisor URL format
-            self.api_base = f"{self.base_url}/homeassistant/api"
+            if not self.supervisor_token:
+                logger.error("SUPERVISOR_TOKEN not found - HA API access will fail")
+                logger.debug(f"Environment check: SUPERVISOR_API={os.environ.get('SUPERVISOR_API')}, SUPERVISOR_TOKEN present={bool(os.environ.get('SUPERVISOR_TOKEN'))}")
         else:
-            # Direct HA URL (e.g., http://homeassistant:8123)
+            # Direct HA URL (e.g., http://homeassistant:8123) - requires long-lived access token
             if not self.base_url.startswith('http'):
                 self.base_url = f"http://{self.base_url}"
             self.api_base = f"{self.base_url}/api"
         
-        self.token = token or os.environ.get('SUPERVISOR_TOKEN') or os.environ.get('HA_TOKEN')
-        self.headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {self.token}' if self.token else None
-        }
-        # Remove None headers
-        self.headers = {k: v for k, v in self.headers.items() if v is not None}
+        # Set headers with authentication token
+        if self.supervisor_token:
+            self.headers = {
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {self.supervisor_token}'
+            }
+        else:
+            # No token - requests will fail but log the issue
+            self.headers = {
+                'Content-Type': 'application/json'
+            }
+            logger.error("SUPERVISOR_TOKEN not available - HA API requests will fail. Make sure add-on is running in Supervisor context.")
         
-        logger.info(f"Initialized HA client: base_url={self.api_base}, has_token={bool(self.token)}")
+        logger.info(f"Initialized HA client: api_base={self.api_base}, has_token={bool(self.supervisor_token)}")
     
     def _request(self, method, endpoint, data=None):
         """Make HTTP request to HA API"""
@@ -62,10 +71,18 @@ class HomeAssistantClient:
                     logger.error(f"HA API error: {response.status} - {response.read().decode('utf-8')}")
                     return None
         except HTTPError as e:
-            if e.code == 404:
+            error_body = None
+            try:
+                error_body = e.read().decode('utf-8') if hasattr(e, 'read') else str(e.reason)
+            except:
+                pass
+            
+            if e.code == 401:
+                logger.error(f"HA API authentication failed (401): {error_body}. Check that SUPERVISOR_TOKEN is available.")
+            elif e.code == 404:
                 logger.debug(f"HA API endpoint not found: {endpoint}")
             else:
-                logger.warning(f"HA API HTTP error {e.code}: {e.reason}")
+                logger.warning(f"HA API HTTP error {e.code}: {error_body or e.reason}")
             return None
         except Exception as e:
             logger.warning(f"HA API request failed: {e}")
@@ -119,9 +136,19 @@ class HomeAssistantClient:
     
     def is_available(self):
         """Check if HA API is available"""
+        if not self.supervisor_token:
+            logger.debug("No SUPERVISOR_TOKEN available, skipping HA API check")
+            return False
         try:
+            # Try to get any entity state to verify API access
+            # Use a common entity that should always exist
             state = self.get_state('sensor.time')
-            return state is not None
-        except Exception:
+            if state is None:
+                # Try alternative check
+                result = self._request('GET', 'config')
+                return result is not None
+            return True
+        except Exception as e:
+            logger.debug(f"HA API availability check failed: {e}")
             return False
 

@@ -304,7 +304,12 @@ def main():
         try:
             from ha.client import HomeAssistantClient
             ha_url = config.get('ha_api_url', 'http://supervisor')
+            # Supervisor automatically provides SUPERVISOR_TOKEN to add-ons
+            # It's available in the environment, no manual config needed
             ha_token = config.get('ha_api_token', '') or os.environ.get('SUPERVISOR_TOKEN')
+            if not ha_token:
+                logger.warning("SUPERVISOR_TOKEN not found in environment - HA history features will use SQLite fallback")
+                logger.debug("This is normal if not running in Supervisor context")
             ha_client = HomeAssistantClient(base_url=ha_url, token=ha_token)
             if ha_client.is_available():
                 logger.info("Home Assistant API client initialized successfully")
