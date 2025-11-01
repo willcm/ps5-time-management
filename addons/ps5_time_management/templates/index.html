@@ -9,7 +9,7 @@
   <style>
     .toggle-switch { position: relative; display: inline-flex; height: 2rem; width: 4rem; align-items: center; border-radius: 9999px; transition: background-color 0.2s; cursor: pointer; }
     .toggle-switch.active { background-color: rgb(37 99 235); }
-    .toggle-switch:not(.active) { background-color: rgba(255, 255, 255, 0.2); }
+    .toggle-switch:not(.active) { background-color: rgb(75 85 99); }
     .toggle-slider { display: inline-block; height: 1.25rem; width: 1.25rem; transform: translateX(0.375rem); border-radius: 9999px; background-color: white; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1); transition: transform 0.2s; }
     .toggle-switch.active .toggle-slider { transform: translateX(2.375rem); }
   </style>
@@ -24,10 +24,10 @@
 
       <div class="bg-card rounded-2xl shadow-none p-6">
         <div class="pb-3">
-          <h2 class="flex items-center gap-2 text-lg font-semibold">
+          <h2 class="flex items-center gap-2 text-base font-semibold">
             <svg class="h-5 w-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-            Console Status
-            <span id="status-badge" class="ml-2 bg-secondary/80 text-secondary-foreground font-medium text-xs px-2.5 py-0.5 rounded-full">Loading…</span>
+            <span class="h-8 flex items-center">Console Status</span>
+            <span id="status-badge" class="ml-2 h-8 flex items-center bg-secondary/80 text-secondary-foreground font-medium text-xs px-2.5 py-0.5 rounded-full">Loading…</span>
             <span id="standby-toggle-container" class="hidden ml-2">
               <button id="standby-toggle" class="toggle-switch" onclick="toggleStandby()" role="switch" aria-checked="false">
                 <span class="toggle-slider"></span>
@@ -84,13 +84,15 @@
         badge.className = 'font-medium text-xs px-2.5 py-0.5 rounded-full ' + badgeFor(power);
         badge.textContent = power;
         
-        // Show standby toggle if PS5 is awake
+        // Show standby toggle if PS5 is awake - blue when awake
         if (power === 'AWAKE' && currentPs5Id) {
           standbyToggleContainer.classList.remove('hidden');
-          standbyToggle.classList.remove('active');
-          standbyToggle.setAttribute('aria-checked', 'false');
+          standbyToggle.classList.add('active');
+          standbyToggle.setAttribute('aria-checked', 'true');
         } else {
           standbyToggleContainer.classList.add('hidden');
+          standbyToggle.classList.remove('active');
+          standbyToggle.setAttribute('aria-checked', 'false');
         }
 
         // Players
@@ -198,10 +200,10 @@
         });
         const result = await response.json();
         if (result.success) {
-          // Update toggle state
+          // Update toggle state - turn grey (off) after sending standby
           const toggle = document.getElementById('standby-toggle');
-          toggle.classList.add('active');
-          toggle.setAttribute('aria-checked', 'true');
+          toggle.classList.remove('active');
+          toggle.setAttribute('aria-checked', 'false');
         } else {
           alert('Failed to send standby command: ' + (result.error || 'Unknown error'));
         }
