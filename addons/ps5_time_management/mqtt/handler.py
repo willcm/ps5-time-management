@@ -120,6 +120,14 @@ def handle_device_update(ps5_id, data):
                         logger.error(f"Failed to start warning for {player}: {e}")
                     continue
 
+                # Check for restored sessions and replace them with proper sessions
+                for sid, session in list(time_manager.active_sessions.items()):
+                    if session['user'] == player and session.get('restored'):
+                        # Replace restored session with proper one
+                        del time_manager.active_sessions[sid]
+                        logger.info(f"Replaced restored session for {player} with proper session from device update")
+                        break
+                
                 session_id = time_manager.start_session(player, game_name, ps5_id)
                 if session_id:
                     if debug_user_name and debug_user_name == player:
