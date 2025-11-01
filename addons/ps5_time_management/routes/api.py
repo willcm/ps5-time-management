@@ -44,6 +44,7 @@ def register_routes(flask_app, tm, discovered, mqtt_conn, mqtt_cli, publish_func
     register_limit_routes()
     register_session_routes()
     register_debug_routes()
+    register_standby_routes()
     register_mqtt_routes()
 
 
@@ -465,6 +466,37 @@ def register_debug_routes():
             'top_games': games,
             'total_minutes': sum(s['minutes'] for s in daily_stats)
         })
+
+
+def register_standby_routes():
+    """Register standby control routes"""
+    @app.route('/api/standby', methods=['POST'])
+    def api_standby():
+        """Send standby command to PS5"""
+        try:
+            data = request.get_json() or {}
+            ps5_id = data.get('ps5_id') or latest_device_status.get('ps5_id')
+            
+            if not ps5_id:
+                return jsonify({'error': 'PS5 ID not found'}), 400
+            
+            if not mqtt_client or not mqtt_connected:
+                return jsonify({'error': 'MQTT not connected'}), 503
+            
+            # Get topic prefix from config
+            from config.loader import load_config
+            config_dict = load_config()
+            topic_prefix = config_dict.get('mqtt_topic_prefix', 'ps5-mqtt')
+            
+            # Send standby command
+            standby_topic = f"{topic_prefix}/{ps5_id}/set/power"
+            mqtt_client.publish(standby_topic, "STANDBY", retain=False)
+            logger.info(f"Published STANDBY command to {standby_topic}")
+            
+            return jsonify({'success': True, 'message': f'Standby command sent to PS5 {ps5_id}'})
+        except Exception as e:
+            logger.error(f"/api/standby error: {e}")
+            return jsonify({'error': str(e)}), 500
 
 
 def register_mqtt_routes():

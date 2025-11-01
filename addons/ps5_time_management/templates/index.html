@@ -28,15 +28,18 @@
             <svg class="h-5 w-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
             Console Status
             <span id="status-badge" class="ml-2 bg-secondary/80 text-secondary-foreground font-medium text-xs px-2.5 py-0.5 rounded-full">Loading…</span>
+            <span id="standby-toggle-container" class="hidden ml-2">
+              <button id="standby-toggle" class="toggle-switch" onclick="toggleStandby()" role="switch" aria-checked="false">
+                <span class="toggle-slider"></span>
+              </button>
+            </span>
           </h2>
         </div>
         <div class="flex items-center gap-4">
           <img id="game-cover" class="hidden h-16 w-16 rounded-lg object-cover bg-muted" alt="Game" />
-          <div class="space-y-1">
-            <div class="flex items-center gap-2">
-              <div id="players-line" class="text-sm text-foreground hidden"></div>
-              <div id="game-line" class="text-sm text-foreground hidden"></div>
-            </div>
+          <div class="flex flex-col gap-1">
+            <div id="players-line" class="text-sm text-foreground hidden"></div>
+            <div id="game-line" class="text-sm text-foreground hidden"></div>
           </div>
         </div>
         
@@ -65,6 +68,7 @@
       if (power === 'STANDBY') return 'bg-zinc-600 text-white';
       return 'bg-zinc-700 text-white';
     }
+    let currentPs5Id = null;
     async function fetchStatus(){
       try {
         const r = await fetch('./api/status');
@@ -73,9 +77,21 @@
         const playersLine = document.getElementById('players-line');
         const gameLine = document.getElementById('game-line');
         const cover = document.getElementById('game-cover');
+        const standbyToggleContainer = document.getElementById('standby-toggle-container');
+        const standbyToggle = document.getElementById('standby-toggle');
         const power = (s && s.power) || 'UNKNOWN';
+        currentPs5Id = s && s.ps5_id;
         badge.className = 'font-medium text-xs px-2.5 py-0.5 rounded-full ' + badgeFor(power);
         badge.textContent = power;
+        
+        // Show standby toggle if PS5 is awake
+        if (power === 'AWAKE' && currentPs5Id) {
+          standbyToggleContainer.classList.remove('hidden');
+          standbyToggle.classList.remove('active');
+          standbyToggle.setAttribute('aria-checked', 'false');
+        } else {
+          standbyToggleContainer.classList.add('hidden');
+        }
 
         // Players
         const players = (s && s.players) || (s && s.active_sessions && s.active_sessions.map(a=>a.user)) || [];
@@ -168,6 +184,31 @@
     }
     async function refreshUser(user){ try{ await fetch(`./api/refresh/${user}`, {method:'POST'}); loadUsers(); }catch(e){} }
     async function clearUserStats(user){ if(!confirm(`Clear all stats for ${user}?`)) return; try{ await fetch(`./api/cleanup/${user}`, {method:'POST'}); loadUsers(); }catch(e){} }
+    
+    async function toggleStandby(){
+      if (!currentPs5Id) {
+        alert('PS5 ID not available');
+        return;
+      }
+      try {
+        const response = await fetch('./api/standby', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ps5_id: currentPs5Id})
+        });
+        const result = await response.json();
+        if (result.success) {
+          // Update toggle state
+          const toggle = document.getElementById('standby-toggle');
+          toggle.classList.add('active');
+          toggle.setAttribute('aria-checked', 'true');
+        } else {
+          alert('Failed to send standby command: ' + (result.error || 'Unknown error'));
+        }
+      } catch(e) {
+        alert('Error sending standby command: ' + e.message);
+      }
+    }
 
     fetchStatus(); loadUsers(); setInterval(fetchStatus, 15000);
 
