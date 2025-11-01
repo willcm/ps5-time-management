@@ -147,6 +147,7 @@ def update_all_sensor_states():
 
 def update_user_sensor_states(user):
     """Update MQTT sensor states for a specific user"""
+    global last_published_values
     try:
         if not mqtt_connected or mqtt_client is None:
             logger.debug(f"Deferring state publish for {user} until MQTT connected")
