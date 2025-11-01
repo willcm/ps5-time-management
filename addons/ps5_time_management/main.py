@@ -204,7 +204,7 @@ def on_message(client, userdata, msg):
             return
         
         data = json.loads(payload)
-        logger.info(f"Parsed MQTT data: {data}")
+        logger.debug(f"Parsed MQTT data: {data}")
         
         if len(parts) >= 2:
             ps5_id = parts[1]
