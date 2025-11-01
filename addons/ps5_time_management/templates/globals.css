@@ -132,6 +132,8 @@
 .text-primary { color: var(--primary) !important; }
 .text-primary-foreground { color: var(--primary-foreground) !important; }
 .text-orange-400 { color: #f59e0b !important; }
+.text-red-500 { color: #ef4444 !important; }
+.text-green-500 { color: #22c55e !important; }
 
 /* Remove light borders; rely on subtle elevation */
 .border { border-color: transparent !important; }

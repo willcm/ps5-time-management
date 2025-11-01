@@ -317,11 +317,20 @@
             }
         }
         
+        function getRemainingColor(mins) {
+            if(!mins || mins <= 0) return 'color: #ef4444';  // 0 or less = red
+            if(mins <= 10) return 'color: #f59e0b';        // 1-10 = orange
+            return 'color: #22c55e';                       // 11+ = green
+        }
+
         function updateUserStats(user, stats) {
             document.getElementById(`${user}-daily`).textContent = `${stats.daily}m`;
             document.getElementById(`${user}-weekly`).textContent = `${stats.weekly}m`;
             document.getElementById(`${user}-monthly`).textContent = `${stats.monthly}m`;
-            document.getElementById(`${user}-remaining`).textContent = `${stats.remaining || (120 - stats.daily)}m`;
+            const remainingEl = document.getElementById(`${user}-remaining`);
+            const remaining = stats.remaining || (120 - stats.daily);
+            remainingEl.textContent = `${remaining}m`;
+            remainingEl.style.cssText = getRemainingColor(remaining);
         }
         
         function showError(message) {
@@ -341,8 +350,8 @@
         // Load users on page load
         loadUsers();
         
-        // Auto-refresh every 30 seconds
-        setInterval(loadUsers, 30000);
+        // Auto-refresh every 5 seconds to update stats dynamically
+        setInterval(loadUsers, 5000);
     </script>
 </body>
 </html>

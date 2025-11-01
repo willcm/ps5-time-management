@@ -132,6 +132,12 @@
       return mins+'m';
     }
 
+    function getRemainingColor(mins){
+      if(!mins || mins <= 0) return 'text-red-500';  // 0 or less = red
+      if(mins <= 10) return 'text-orange-400';       // 1-10 = orange
+      return 'text-green-500';                       // 11+ = green
+    }
+
     function cardHtml(user, stats, allowed){
       return `
       <div class="bg-card rounded-2xl shadow-none"> 
@@ -150,7 +156,7 @@
             <div class="bg-secondary/30 rounded-xl p-3"><div class="flex items-center gap-1.5 text-muted-foreground mb-3">${icon('clock')}<span class="text-xs font-medium">Daily</span></div><p class="text-4xl font-bold text-foreground">${stats.daily}m</p></div>
             <div class="bg-secondary/30 rounded-xl p-3"><div class="flex items-center gap-1.5 text-muted-foreground mb-3">${icon('calendar')}<span class="text-xs font-medium">Weekly</span></div><p class="text-4xl font-bold text-foreground">${stats.weekly}m</p></div>
             <div class="bg-secondary/30 rounded-xl p-3"><div class="flex items-center gap-1.5 text-muted-foreground mb-3">${icon('calendar')}<span class="text-xs font-medium">Monthly</span></div><p class="text-4xl font-bold text-foreground">${stats.monthly}m</p></div>
-            <div class="bg-secondary/30 rounded-xl p-3"><div class="flex items-center gap-1.5 text-muted-foreground mb-3">${icon('clock')}<span class="text-xs font-medium">Remaining</span></div><p class="text-4xl font-bold text-orange-400">${fmtRemaining(stats.remaining || 0)}</p></div>
+            <div class="bg-secondary/30 rounded-xl p-3"><div class="flex items-center gap-1.5 text-muted-foreground mb-3">${icon('clock')}<span class="text-xs font-medium">Remaining</span></div><p class="text-4xl font-bold ${getRemainingColor(stats.remaining || 0)}">${fmtRemaining(stats.remaining || 0)}</p></div>
           </div>
         </div>
       </div>`
@@ -214,6 +220,11 @@
     }
 
     fetchStatus(); loadUsers(); setInterval(fetchStatus, 15000);
+    
+    // Auto-refresh user stats every 5 seconds to update time remaining and session data
+    setInterval(() => {
+      loadUsers();
+    }, 5000);
 
     // Removed temporary cache viewer
   </script>
