@@ -3,6 +3,7 @@ import os
 import sqlite3
 import time
 import logging
+import threading
 from datetime import datetime, timedelta
 from urllib.request import Request, urlopen
 
@@ -360,41 +361,134 @@ class PS5TimeManager:
                             elapsed = (now - today_start).total_seconds()
                             active_time += elapsed / 60
                 
-                # If no active sessions in memory but binary sensor is ON, check HA for active session
-                if active_time == 0 and self.ha_client:
-                    try:
-                        # Check binary sensor for active session state
-                        entity_id = f"binary_sensor.ps5_time_management_{user.lower()}_session_active"
-                        logger.info(f"Checking binary sensor state for {user} after restart: {entity_id}")
-                        current_state = self.ha_client.get_state(entity_id)
-                        logger.info(f"Binary sensor state response for {user}: {current_state}")
-                        if current_state and current_state.get('state', '').upper() == 'ON':
-                            # Binary sensor is ON - there's an active session we lost track of
-                            last_changed_str = current_state.get('last_changed') or current_state.get('last_updated')
-                            if last_changed_str:
-                                try:
-                                    if last_changed_str.endswith('+00:00') or last_changed_str.endswith('Z'):
-                                        last_changed = datetime.fromisoformat(last_changed_str.replace('Z', '+00:00'))
-                                    else:
-                                        last_changed = datetime.fromisoformat(last_changed_str)
-                                    
-                                    # Calculate time from when sensor turned ON (if today) or from midnight
-                                    if last_changed.date() == today_date:
-                                        elapsed = (datetime.now() - last_changed).total_seconds()
-                                        active_time = elapsed / 60
-                                        logger.info(f"Detected active session from binary sensor for {user}: {active_time:.1f} min since {last_changed}")
-                                    else:
-                                        # Session started yesterday - count from midnight
-                                        today_start = datetime.combine(today_date, datetime.min.time())
-                                        elapsed = (datetime.now() - today_start).total_seconds()
-                                        active_time = elapsed / 60
-                                        logger.info(f"Detected active session from binary sensor for {user}: {active_time:.1f} min since midnight")
-                                except Exception as e:
-                                    logger.warning(f"Failed to parse last_changed for binary sensor state: {e}")
+                # If no active sessions in memory, check for active session via MQTT retained message or HA
+                if active_time == 0:
+                    # First try MQTT retained message (faster and more reliable after restart)
+                    session_active_state = None
+                    if self.mqtt_client:
+                        try:
+                            topic_prefix = self.mqtt_config.get('mqtt_topic_prefix', 'ps5-mqtt')
+                            # Use ps5_time_management topic (not ps5-mqtt) for our sensors
+                            state_topic = f"ps5_time_management/{user}/active"
+                            # Subscribe temporarily to get retained message
+                            retained_msg_received = threading.Event()
+                            retained_msg_value = [None]
+                            
+                            def on_message_check_retained(client, userdata, msg):
+                                if msg.topic == state_topic:
+                                    retained_msg_value[0] = msg.payload.decode('utf-8') if msg.payload else None
+                                    retained_msg_received.set()
+                            
+                            # Temporarily add message handler
+                            self.mqtt_client.on_message = on_message_check_retained
+                            self.mqtt_client.subscribe(state_topic, qos=1)
+                            # Wait briefly for retained message (MQTT sends retained on subscribe)
+                            if retained_msg_received.wait(timeout=0.5):
+                                session_active_state = retained_msg_value[0]
+                                logger.info(f"Retrieved session_active state from MQTT retained message for {user}: {session_active_state}")
+                            else:
+                                logger.debug(f"No retained message found on {state_topic} for {user}")
+                            # Restore original message handler (will be set by main.py later)
+                            self.mqtt_client.on_message = None
+                        except Exception as e:
+                            logger.debug(f"Failed to check MQTT retained message for {user}: {e}")
+                    
+                    # If MQTT check didn't work, try HA API
+                    if not session_active_state and self.ha_client:
+                        try:
+                            entity_id = f"binary_sensor.ps5_time_management_{user.lower()}_session_active"
+                            logger.info(f"Checking binary sensor state in HA for {user}: {entity_id}")
+                            current_state = self.ha_client.get_state(entity_id)
+                            logger.info(f"Binary sensor state response for {user}: {current_state}")
+                            if current_state and current_state.get('state', '').upper() == 'ON':
+                                session_active_state = 'ON'
+                                # Use HA's last_changed timestamp
+                                last_changed_str = current_state.get('last_changed') or current_state.get('last_updated')
+                                if last_changed_str:
+                                    try:
+                                        if last_changed_str.endswith('+00:00') or last_changed_str.endswith('Z'):
+                                            last_changed = datetime.fromisoformat(last_changed_str.replace('Z', '+00:00'))
+                                        else:
+                                            last_changed = datetime.fromisoformat(last_changed_str)
+                                        
+                                        # Calculate time from when sensor turned ON (if today) or from midnight
+                                        if last_changed.date() == today_date:
+                                            elapsed = (datetime.now() - last_changed).total_seconds()
+                                            active_time = elapsed / 60
+                                            logger.info(f"Detected active session from HA binary sensor for {user}: {active_time:.1f} min since {last_changed}")
+                                        else:
+                                            # Session started yesterday - count from midnight
+                                            today_start = datetime.combine(today_date, datetime.min.time())
+                                            elapsed = (datetime.now() - today_start).total_seconds()
+                                            active_time = elapsed / 60
+                                            logger.info(f"Detected active session from HA binary sensor for {user}: {active_time:.1f} min since midnight")
+                                    except Exception as e:
+                                        logger.warning(f"Failed to parse last_changed for binary sensor state: {e}")
+                        except Exception as e:
+                            logger.warning(f"Failed to check binary sensor state in HA for active session: {e}")
+                    
+                    # If we got ON from MQTT/HA but no timestamp, restore session from retained state
+                    # This will allow time calculation until the next device update arrives
+                    if session_active_state and session_active_state.upper() == 'ON' and active_time == 0:
+                        # Session is active but we don't know exact start time from retained message
+                        # Use HA's last_changed if available, otherwise estimate conservatively
+                        estimated_start = datetime.now()
+                        if self.ha_client:
+                            try:
+                                entity_id = f"binary_sensor.ps5_time_management_{user.lower()}_session_active"
+                                current_state = self.ha_client.get_state(entity_id)
+                                if current_state:
+                                    last_changed_str = current_state.get('last_changed') or current_state.get('last_updated')
+                                    if last_changed_str:
+                                        try:
+                                            if last_changed_str.endswith('+00:00') or last_changed_str.endswith('Z'):
+                                                estimated_start = datetime.fromisoformat(last_changed_str.replace('Z', '+00:00'))
+                                            else:
+                                                estimated_start = datetime.fromisoformat(last_changed_str)
+                                        except Exception:
+                                            pass
+                            except Exception:
+                                pass
+                        
+                        # Restore a temporary session so time calculation works
+                        # This will be replaced by a proper session when the next device update arrives
+                        ps5_id = 'unknown'  # Will be updated on next device update
+                        temp_session_id = f"{ps5_id}:{user}:restored_{int(time.time())}"
+                        if temp_session_id not in self.active_sessions:
+                            self.active_sessions[temp_session_id] = {
+                                'user': user,
+                                'game': 'Unknown Game',  # Will be updated on next device update
+                                'start_time': estimated_start,
+                                'ps5_id': ps5_id,
+                                'warnings_sent': [],
+                                'last_update': estimated_start,
+                                'restored': True  # Mark as restored so we know it's temporary
+                            }
+                            logger.info(f"Restored active session for {user} from retained state (estimated start: {estimated_start})")
+                            # Recalculate active_time now that session is restored
+                            if estimated_start.date() == today_date:
+                                elapsed = (datetime.now() - estimated_start).total_seconds()
+                                active_time = elapsed / 60
+                            else:
+                                today_start = datetime.combine(today_date, datetime.min.time())
+                                elapsed = (datetime.now() - today_start).total_seconds()
+                                active_time = elapsed / 60
+                            logger.info(f"Restored session active time for {user}: {active_time:.1f} min")
                         else:
-                            logger.debug(f"Binary sensor {entity_id} is OFF or not found")
-                    except Exception as e:
-                        logger.warning(f"Failed to check binary sensor state for active session: {e}")
+                            # Session already restored - calculate from it
+                            restored_session = self.active_sessions[temp_session_id]
+                            session_start = restored_session['start_time']
+                            if session_start.date() == today_date:
+                                elapsed = (datetime.now() - session_start).total_seconds()
+                                active_time = elapsed / 60
+                            else:
+                                today_start = datetime.combine(today_date, datetime.min.time())
+                                elapsed = (datetime.now() - today_start).total_seconds()
+                                active_time = elapsed / 60
+                    elif session_active_state and session_active_state.upper() != 'ON':
+                        logger.debug(f"Session active state for {user} is OFF")
+                    elif not session_active_state:
+                        logger.debug(f"Could not determine session active state for {user} - sensor may not exist yet or is not available")
                 
                 total_time = ha_time + active_time
                 logger.info(f"User {user} time today: {ha_time:.1f} min (HA) + {active_time:.1f} min active = {total_time:.1f} min total")

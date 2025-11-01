@@ -310,9 +310,11 @@ def main():
         except Exception as e:
             logger.warning(f"Failed to initialize HA client: {e}, will use SQLite fallback")
     
-    # Initialize time manager
+    # Initialize time manager (will update mqtt_client reference after connection)
     db_path = config.get('database_path', '/data/ps5_time_management.db')
-    time_manager = PS5TimeManager(db_path, ha_client=ha_client, use_ha_history=use_ha_history)
+    mqtt_config_for_tm = get_mqtt_config()
+    time_manager = PS5TimeManager(db_path, ha_client=ha_client, use_ha_history=use_ha_history, 
+                                   mqtt_client=None, mqtt_config=mqtt_config_for_tm)
     
     # Handle clear_all_stats option now that time_manager is initialized
     if config.get('clear_all_stats', False):
