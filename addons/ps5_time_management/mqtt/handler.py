@@ -205,6 +205,7 @@ def handle_device_update(ps5_id, data):
         # Device is in rest mode (reachable)
         should_end_sessions = True
         reason = "standby"
+        logger.warning(f"🔌 PS5 {ps5_id} detected in STANDBY mode - ending all sessions")
     elif actual_device_status == 'offline' or actual_power == 'UNKNOWN':
         # Device is unreachable/powered off (not in rest mode)
         should_end_sessions = True
