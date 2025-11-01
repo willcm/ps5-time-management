@@ -360,6 +360,37 @@ class PS5TimeManager:
                             elapsed = (now - today_start).total_seconds()
                             active_time += elapsed / 60
                 
+                # If no active sessions in memory but binary sensor is ON, check HA for active session
+                if active_time == 0 and self.ha_client:
+                    try:
+                        entity_id = f"binary_sensor.ps5_time_management_{user.lower()}_session_active"
+                        current_state = self.ha_client.get_state(entity_id)
+                        if current_state and current_state.get('state', '').upper() == 'ON':
+                            # Binary sensor is ON - there's an active session we lost track of
+                            last_changed_str = current_state.get('last_changed') or current_state.get('last_updated')
+                            if last_changed_str:
+                                try:
+                                    if last_changed_str.endswith('+00:00') or last_changed_str.endswith('Z'):
+                                        last_changed = datetime.fromisoformat(last_changed_str.replace('Z', '+00:00'))
+                                    else:
+                                        last_changed = datetime.fromisoformat(last_changed_str)
+                                    
+                                    # Calculate time from when sensor turned ON (if today) or from midnight
+                                    if last_changed.date() == today_date:
+                                        elapsed = (datetime.now() - last_changed).total_seconds()
+                                        active_time = elapsed / 60
+                                        logger.info(f"Detected active session from binary sensor for {user}: {active_time:.1f} min since {last_changed}")
+                                    else:
+                                        # Session started yesterday - count from midnight
+                                        today_start = datetime.combine(today_date, datetime.min.time())
+                                        elapsed = (datetime.now() - today_start).total_seconds()
+                                        active_time = elapsed / 60
+                                        logger.info(f"Detected active session from binary sensor for {user}: {active_time:.1f} min since midnight")
+                                except Exception as e:
+                                    logger.debug(f"Failed to parse last_changed for binary sensor state: {e}")
+                    except Exception as e:
+                        logger.debug(f"Failed to check binary sensor state for active session: {e}")
+                
                 total_time = ha_time + active_time
                 logger.info(f"User {user} time today: {ha_time:.1f} min (HA) + {active_time:.1f} min active = {total_time:.1f} min total")
                 # Ensure we don't return 0 if HA history exists but calculation might be incomplete
