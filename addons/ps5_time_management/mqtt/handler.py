@@ -87,9 +87,11 @@ def handle_device_update(ps5_id, data):
         # Update the models module so PS5TimeManager can access it
         set_latest_device_status(latest_device_status)
         
-        # Log power state change
+        # Log power state change with WARNING level for visibility (will be colored orange in logs)
         if new_power and new_power != current_power:
-            logger.info(f"Power state changed for PS5 {ps5_id}: {current_power} -> {new_power}")
+            logger.warning(f"🔌 Power state changed for PS5 {ps5_id}: {current_power or 'None'} -> {new_power}")
+            # Also log to INFO for compatibility, but WARNING is the highlighted one
+            logger.info(f"Power state changed for PS5 {ps5_id}: {current_power or 'None'} -> {new_power}")
     except Exception as e:
         logger.warning(f"Failed updating latest device status: {e}")
     if players:

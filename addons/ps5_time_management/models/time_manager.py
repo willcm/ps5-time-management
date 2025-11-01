@@ -626,7 +626,7 @@ class PS5TimeManager:
                 # If we have HA history but total is 0, and there's an active session, use active time
                 if ha_time == 0 and active_time > 0:
                     logger.debug(f"HA returned 0 but active session exists - using active time: {active_time:.1f} min")
-                return max(0, int(round(total_time)))
+                return max(0, int(total_time))  # Use int() (floor) instead of round - only increment when full minute elapsed
             except Exception as e:
                 logger.warning(f"Failed to get time from HA, falling back to SQLite: {e}")
         
@@ -670,7 +670,7 @@ class PS5TimeManager:
         
         total_time = completed_time + active_time
         logger.info(f"User {user} time today (SQLite): {completed_time} min completed + {active_time:.1f} min active ({active_count} sessions) = {total_time:.1f} min total")
-        return int(round(total_time))  # Round instead of truncate for better accuracy
+        return int(total_time)  # Use int() (floor) - only increment when full minute elapsed
     
     def get_user_weekly_time(self, user):
         """Get total time played this week by user
@@ -843,7 +843,7 @@ class PS5TimeManager:
                     
                     games_with_images.append({
                         'game': game_name,
-                        'minutes': int(round(minutes)),
+                        'minutes': int(minutes),  # Use int() (floor) - only increment when full minute elapsed
                         'image': game_image
                     })
                 
