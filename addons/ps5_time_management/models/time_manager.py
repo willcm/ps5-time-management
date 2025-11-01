@@ -415,38 +415,113 @@ class PS5TimeManager:
                             active_time += elapsed / 60
                 
                 # If no active sessions in memory, check ps5-mqtt retained message as source of truth
-                # ps5-mqtt publishes: power (STANDBY/AWAKE), activity (playing/idle/none), players (array)
+                # According to ps5-mqtt docs: power can be STANDBY/AWAKE/UNKNOWN
+                # - STANDBY = rest mode, reachable
+                # - AWAKE = powered on, active
+                # - UNKNOWN + offline = unreachable/powered off
                 if active_time == 0:
-                    # First try MQTT retained message (faster and more reliable after restart)
-                    session_active_state = None
+                    # First check ps5-mqtt device status to ensure device is AWAKE before restoring sessions
+                    # This prevents restoring sessions when device is STANDBY or offline
+                    device_power_state = None
+                    device_status = None
+                    device_activity = None
+                    device_players = []
+                    
                     if self.mqtt_client:
                         try:
                             topic_prefix = self.mqtt_config.get('mqtt_topic_prefix', 'ps5-mqtt')
-                            # Use ps5_time_management topic (not ps5-mqtt) for our sensors
-                            state_topic = f"ps5_time_management/{user}/active"
-                            # Subscribe temporarily to get retained message
-                            retained_msg_received = threading.Event()
-                            retained_msg_value = [None]
+                            # Check all known PS5s from latest_device_status or try common PS5 ID pattern
+                            ps5_ids_to_check = []
+                            if latest_device_status and latest_device_status.get('ps5_id'):
+                                ps5_ids_to_check.append(latest_device_status.get('ps5_id'))
+                            # Also check if we have any active sessions with PS5 IDs
+                            for session in self.active_sessions.values():
+                                ps5_id = session.get('ps5_id')
+                                if ps5_id and ps5_id != 'unknown' and ps5_id not in ps5_ids_to_check:
+                                    ps5_ids_to_check.append(ps5_id)
                             
-                            def on_message_check_retained(client, userdata, msg):
-                                if msg.topic == state_topic:
-                                    retained_msg_value[0] = msg.payload.decode('utf-8') if msg.payload else None
-                                    retained_msg_received.set()
-                            
-                            # Temporarily add message handler (save original first)
-                            original_on_message = self.mqtt_client.on_message
-                            self.mqtt_client.on_message = on_message_check_retained
-                            self.mqtt_client.subscribe(state_topic, qos=1)
-                            # Wait briefly for retained message (MQTT sends retained on subscribe)
-                            if retained_msg_received.wait(timeout=0.5):
-                                session_active_state = retained_msg_value[0]
-                                logger.info(f"Retrieved session_active state from MQTT retained message for {user}: {session_active_state}")
-                            else:
-                                logger.debug(f"No retained message found on {state_topic} for {user}")
-                            # Restore original message handler
-                            self.mqtt_client.on_message = original_on_message
+                            # Check ps5-mqtt device status from retained message
+                            if ps5_ids_to_check:
+                                for ps5_id in ps5_ids_to_check:
+                                    device_topic = f"{topic_prefix}/{ps5_id}"
+                                    device_msg_received = threading.Event()
+                                    device_payload = [None]
+                                    
+                                    def on_message_check_device(client, userdata, msg):
+                                        if msg.topic == device_topic:
+                                            try:
+                                                import json
+                                                device_payload[0] = json.loads(msg.payload.decode('utf-8'))
+                                                device_msg_received.set()
+                                            except Exception:
+                                                pass
+                                    
+                                    original_on_message = self.mqtt_client.on_message
+                                    self.mqtt_client.on_message = on_message_check_device
+                                    self.mqtt_client.subscribe(device_topic, qos=1)
+                                    
+                                    if device_msg_received.wait(timeout=0.3):
+                                        device_data = device_payload[0]
+                                        device_power_state = device_data.get('power')
+                                        device_status = device_data.get('device_status')
+                                        device_activity = device_data.get('activity')
+                                        device_players = device_data.get('players', [])
+                                        
+                                        # According to ps5-mqtt docs: if offline, power is UNKNOWN
+                                        if device_status == 'offline':
+                                            device_power_state = 'UNKNOWN'
+                                        
+                                        logger.debug(f"Retrieved ps5-mqtt device state for {ps5_id}: power={device_power_state}, status={device_status}, activity={device_activity}, players={device_players}")
+                                        
+                                        # Only proceed if device is AWAKE and user is in players list
+                                        if device_power_state == 'AWAKE' and device_activity == 'playing' and user in device_players:
+                                            break  # Found active session for this user
+                                        elif device_power_state in ('STANDBY', 'UNKNOWN') or device_status == 'offline':
+                                            logger.debug(f"Device {ps5_id} is {device_power_state}/{device_status} - skipping session restoration for {user}")
+                                            device_power_state = None  # Don't restore
+                                            break
+                                    else:
+                                        logger.debug(f"No retained device state message found for PS5 {ps5_id}")
+                                    
+                                    self.mqtt_client.on_message = original_on_message
+                                    break  # Only check first PS5 ID
                         except Exception as e:
-                            logger.debug(f"Failed to check MQTT retained message for {user}: {e}")
+                            logger.debug(f"Failed to check ps5-mqtt device status for {user}: {e}")
+                    
+                    # If device is AWAKE and user is playing, check our own sensor state
+                    session_active_state = None
+                    if device_power_state == 'AWAKE' and user in device_players:
+                        if self.mqtt_client:
+                            try:
+                                topic_prefix = self.mqtt_config.get('mqtt_topic_prefix', 'ps5-mqtt')
+                                # Use ps5_time_management topic (not ps5-mqtt) for our sensors
+                                state_topic = f"ps5_time_management/{user}/active"
+                                # Subscribe temporarily to get retained message
+                                retained_msg_received = threading.Event()
+                                retained_msg_value = [None]
+                                
+                                def on_message_check_retained(client, userdata, msg):
+                                    if msg.topic == state_topic:
+                                        retained_msg_value[0] = msg.payload.decode('utf-8') if msg.payload else None
+                                        retained_msg_received.set()
+                                
+                                # Temporarily add message handler (save original first)
+                                original_on_message = self.mqtt_client.on_message
+                                self.mqtt_client.on_message = on_message_check_retained
+                                self.mqtt_client.subscribe(state_topic, qos=1)
+                                # Wait briefly for retained message (MQTT sends retained on subscribe)
+                                if retained_msg_received.wait(timeout=0.5):
+                                    session_active_state = retained_msg_value[0]
+                                    logger.info(f"Retrieved session_active state from MQTT retained message for {user}: {session_active_state}")
+                                else:
+                                    logger.debug(f"No retained message found on {state_topic} for {user}")
+                                # Restore original message handler
+                                self.mqtt_client.on_message = original_on_message
+                            except Exception as e:
+                                logger.debug(f"Failed to check MQTT retained message for {user}: {e}")
+                    elif device_power_state in ('STANDBY', 'UNKNOWN') or device_status == 'offline':
+                        logger.debug(f"Skipping session restoration for {user} - device is {device_power_state}/{device_status}")
+                        session_active_state = None  # Ensure we don't restore
                     
                     # If MQTT check didn't work, try HA API
                     if not session_active_state and self.ha_client:
