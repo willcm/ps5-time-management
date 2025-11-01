@@ -19,6 +19,8 @@ stage: stable
 homeassistant: 2023.1.0
 services:
   - mqtt:need
+hassio_api: true
+hassio_role: homeassistant
 stdin: true
 map:
   - config:rw
