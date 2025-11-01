@@ -205,6 +205,14 @@ def on_message(client, userdata, msg):
     try:
         # Parse topic to get PS5 ID and early-ignore non-JSON topics
         parts = topic.split('/')
+        
+        # Ignore our own sensor state topics (these are plain strings, not JSON)
+        if len(parts) >= 2 and parts[0] == 'ps5_time_management':
+            # This is one of our own sensor state topics (e.g., ps5_time_management/Thomas/active)
+            # These are plain string values like "ON"/"OFF", not JSON
+            logger.debug(f"Ignoring our own sensor state topic: {topic}")
+            return
+        
         # Ignore our own command/set subtopics before attempting JSON parse
         if len(parts) >= 3 and parts[2] in ('command', 'set'):
             return
@@ -224,7 +232,12 @@ def on_message(client, userdata, msg):
                 logger.debug(f"Ignoring non-device topic: {parts}")
                 
     except json.JSONDecodeError:
-        logger.error(f"Failed to parse JSON from topic {topic}, payload: {payload}")
+        # Don't log error for topics we should ignore - just debug log
+        parts = topic.split('/')
+        if len(parts) >= 2 and parts[0] == 'ps5_time_management':
+            logger.debug(f"Non-JSON message on our sensor topic {topic} (expected - these are plain strings)")
+        else:
+            logger.error(f"Failed to parse JSON from topic {topic}, payload: {payload}")
     except Exception as e:
         logger.error(f"Error handling MQTT message: {e}")
 
