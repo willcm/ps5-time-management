@@ -215,7 +215,7 @@ class PS5TimeManager:
             conn.close()
             # Store DB ID in session dict for later reference
             self.active_sessions[session_id]['db_id'] = db_id
-            logger.info(f"Started session for user {user} playing {game} on PS5 {ps5_id} - Session ID: {session_id}, DB ID: {db_id}, Start time: {start_time}")
+            logger.info(f"Started session for user {user} playing {game} on PS5 {ps5_id}")
         except Exception as e:
             logger.warning(f"Failed to persist session to database: {e}")
             # Still return session_id even if DB write failed
@@ -371,7 +371,7 @@ class PS5TimeManager:
         conn.commit()
         conn.close()
         
-        logger.info(f"Ended session for user {user} playing {game} on PS5 {session['ps5_id']} - Session ID: {session_id}, DB ID: {db_id}, Duration: {int(duration/60)} minutes, Start: {start_time}, End: {end_time}")
+        logger.info(f"Ended session for user {user} playing {game} ({int(duration/60)} minutes)")
         return True
     
     def get_active_sessions_from_db(self):
@@ -396,7 +396,6 @@ class PS5TimeManager:
                     'ps5_id': row[4]
                 }
                 sessions.append(session_info)
-                logger.info(f"Found active session in DB - DB ID: {row[0]}, User: {row[1]}, Game: {row[2]}, PS5: {row[4]}, Started: {start_time}")
             return sessions
         except Exception as e:
             logger.warning(f"Failed to load active sessions from database: {e}")
@@ -413,9 +412,7 @@ class PS5TimeManager:
             'warnings_sent': [],
             'db_id': db_id  # Keep reference to DB ID
         }
-        # Calculate elapsed time since session started
-        elapsed_minutes = (datetime.now() - start_time).total_seconds() / 60
-        logger.info(f"Restored session - User: {user}, Game: {game}, PS5: {ps5_id}, Session ID: {session_id}, DB ID: {db_id}, Started: {start_time}, Elapsed: {elapsed_minutes:.1f} minutes")
+        logger.info(f"Restored session for {user} playing {game} on PS5 {ps5_id}")
         return session_id
     
     def mark_session_ended(self, db_id, end_time=None, ended_normally=True):
@@ -439,8 +436,7 @@ class PS5TimeManager:
                              WHERE id=?''',
                          (end_time, int(duration), 1 if ended_normally else 0, db_id))
                 conn.commit()
-                ended_status = "normally" if ended_normally else "due to plugin restart/PS5 state change"
-                logger.info(f"Marked session as ended - DB ID: {db_id}, User: {user}, Game: {game}, PS5: {ps5_id}, Duration: {int(duration/60)} minutes, Ended {ended_status}, Start: {start_time}, End: {end_time}")
+                logger.info(f"Marked session {db_id} as ended for {user} ({int(duration/60)} minutes)")
             conn.close()
         except Exception as e:
             logger.warning(f"Failed to mark session {db_id} as ended: {e}")
