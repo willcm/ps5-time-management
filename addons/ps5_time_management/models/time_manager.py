@@ -107,7 +107,14 @@ class PS5TimeManager:
                       end_time TIMESTAMP,
                       duration_seconds INTEGER,
                       ps5_id TEXT,
-                      ended_normally BOOLEAN DEFAULT 1)''')
+                      ended_normally BOOLEAN DEFAULT 1,
+                      active BOOLEAN DEFAULT 0)''')
+        
+        # Add 'active' column if it doesn't exist (for migration)
+        try:
+            c.execute("ALTER TABLE sessions ADD COLUMN active BOOLEAN DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         
         # User stats table - aggregated statistics
         c.execute('''CREATE TABLE IF NOT EXISTS user_stats
@@ -184,15 +191,35 @@ class PS5TimeManager:
                 return False
         
         session_id = f"{ps5_id}:{user}:{int(time.time())}"
+        start_time = datetime.now()
         self.active_sessions[session_id] = {
             'user': user,
             'game': game,
-            'start_time': datetime.now(),
+            'start_time': start_time,
             'ps5_id': ps5_id,
             'warnings_sent': []
         }
         
-        logger.info(f"Started session for user {user} playing {game}")
+        # Persist active session to database immediately
+        try:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            # Store session with active=1 and no end_time
+            c.execute('''INSERT INTO sessions 
+                         (user, game, start_time, ps5_id, active, ended_normally)
+                         VALUES (?, ?, ?, ?, 1, 0)''',
+                     (user, game, start_time, ps5_id))
+            # Get the database ID for this session
+            db_id = c.lastrowid
+            conn.commit()
+            conn.close()
+            # Store DB ID in session dict for later reference
+            self.active_sessions[session_id]['db_id'] = db_id
+            logger.info(f"Started session for user {user} playing {game} on PS5 {ps5_id} - Session ID: {session_id}, DB ID: {db_id}, Start time: {start_time}")
+        except Exception as e:
+            logger.warning(f"Failed to persist session to database: {e}")
+            # Still return session_id even if DB write failed
+        
         return session_id
 
     def _ensure_image_dir(self):
@@ -274,15 +301,24 @@ class PS5TimeManager:
         start_time = session['start_time']
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
+        db_id = session.get('db_id')
         
-        # Save to database
+        # Update existing session in database (if it was persisted)
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         
-        c.execute('''INSERT INTO sessions 
-                     (user, game, start_time, end_time, duration_seconds, ps5_id)
-                     VALUES (?, ?, ?, ?, ?, ?)''',
-                 (user, game, start_time, end_time, int(duration), session['ps5_id']))
+        if db_id:
+            # Update the existing session record
+            c.execute('''UPDATE sessions 
+                         SET end_time=?, duration_seconds=?, active=0, ended_normally=1
+                         WHERE id=?''',
+                     (end_time, int(duration), db_id))
+        else:
+            # Fallback: insert new record if no DB ID found
+            c.execute('''INSERT INTO sessions 
+                         (user, game, start_time, end_time, duration_seconds, ps5_id, active)
+                         VALUES (?, ?, ?, ?, ?, ?, 0)''',
+                     (user, game, start_time, end_time, int(duration), session['ps5_id']))
         
         # Update daily stats - use proper UPSERT logic
         today = start_time.date().isoformat()
@@ -335,8 +371,95 @@ class PS5TimeManager:
         conn.commit()
         conn.close()
         
-        logger.info(f"Ended session for user {user} playing {game} ({int(duration/60)} minutes)")
+        logger.info(f"Ended session for user {user} playing {game} on PS5 {session['ps5_id']} - Session ID: {session_id}, DB ID: {db_id}, Duration: {int(duration/60)} minutes, Start: {start_time}, End: {end_time}")
         return True
+    
+    def get_active_sessions_from_db(self):
+        """Get all active sessions from database (sessions with active=1 or end_time IS NULL)"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            c.execute('''SELECT id, user, game, start_time, ps5_id 
+                         FROM sessions 
+                         WHERE (active = 1 OR end_time IS NULL)''')
+            rows = c.fetchall()
+            conn.close()
+            # Convert to list of dicts
+            sessions = []
+            for row in rows:
+                start_time = datetime.fromisoformat(row[3]) if isinstance(row[3], str) else row[3]
+                session_info = {
+                    'db_id': row[0],
+                    'user': row[1],
+                    'game': row[2],
+                    'start_time': start_time,
+                    'ps5_id': row[4]
+                }
+                sessions.append(session_info)
+                logger.info(f"Found active session in DB - DB ID: {row[0]}, User: {row[1]}, Game: {row[2]}, PS5: {row[4]}, Started: {start_time}")
+            return sessions
+        except Exception as e:
+            logger.warning(f"Failed to load active sessions from database: {e}")
+            return []
+    
+    def restore_session(self, db_id, user, game, start_time, ps5_id):
+        """Restore a session to active_sessions dict from database"""
+        session_id = f"{ps5_id}:{user}:{int(start_time.timestamp())}"
+        self.active_sessions[session_id] = {
+            'user': user,
+            'game': game,
+            'start_time': start_time,
+            'ps5_id': ps5_id,
+            'warnings_sent': [],
+            'db_id': db_id  # Keep reference to DB ID
+        }
+        # Calculate elapsed time since session started
+        elapsed_minutes = (datetime.now() - start_time).total_seconds() / 60
+        logger.info(f"Restored session - User: {user}, Game: {game}, PS5: {ps5_id}, Session ID: {session_id}, DB ID: {db_id}, Started: {start_time}, Elapsed: {elapsed_minutes:.1f} minutes")
+        return session_id
+    
+    def mark_session_ended(self, db_id, end_time=None, ended_normally=True):
+        """Mark a session as ended in the database without restoring it to active_sessions"""
+        if end_time is None:
+            end_time = datetime.now()
+        try:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            # Get start_time to calculate duration
+            c.execute('SELECT user, game, start_time, ps5_id FROM sessions WHERE id=?', (db_id,))
+            row = c.fetchone()
+            if row:
+                user = row[0]
+                game = row[1]
+                start_time = datetime.fromisoformat(row[2]) if isinstance(row[2], str) else row[2]
+                ps5_id = row[3]
+                duration = (end_time - start_time).total_seconds()
+                c.execute('''UPDATE sessions 
+                             SET end_time=?, duration_seconds=?, active=0, ended_normally=?
+                             WHERE id=?''',
+                         (end_time, int(duration), 1 if ended_normally else 0, db_id))
+                conn.commit()
+                ended_status = "normally" if ended_normally else "due to plugin restart/PS5 state change"
+                logger.info(f"Marked session as ended - DB ID: {db_id}, User: {user}, Game: {game}, PS5: {ps5_id}, Duration: {int(duration/60)} minutes, Ended {ended_status}, Start: {start_time}, End: {end_time}")
+            conn.close()
+        except Exception as e:
+            logger.warning(f"Failed to mark session {db_id} as ended: {e}")
+    
+    def log_all_active_sessions(self):
+        """Log summary of all currently active sessions"""
+        if not self.active_sessions:
+            logger.info("No active sessions currently")
+            return
+        
+        logger.info(f"=== ACTIVE SESSIONS SUMMARY: {len(self.active_sessions)} session(s) ===")
+        now = datetime.now()
+        for session_id, session in self.active_sessions.items():
+            elapsed = (now - session['start_time']).total_seconds()
+            elapsed_minutes = elapsed / 60
+            logger.info(f"  Session ID: {session_id} | User: {session['user']} | Game: {session['game']} | "
+                       f"PS5: {session.get('ps5_id', 'N/A')} | DB ID: {session.get('db_id', 'N/A')} | "
+                       f"Started: {session['start_time']} | Elapsed: {elapsed_minutes:.1f} minutes")
+        logger.info("=== END ACTIVE SESSIONS SUMMARY ===")
     
     def get_user_time_today(self, user):
         """Get total time played today by user (including active sessions)"""

@@ -10,8 +10,8 @@ import sqlite3
 import time
 import glob
 from datetime import datetime, timedelta
-from threading import Thread
-from threading import Timer
+from threading import Thread, Timer
+import threading
 import paho.mqtt.client as mqtt
 from flask import Flask, jsonify, request, render_template, url_for
 from flask_cors import CORS
@@ -104,6 +104,8 @@ current_session = {
 # PS5TimeManager class has been moved to models/time_manager.py
 # Initialize time manager
 time_manager = None
+# Track sessions awaiting MQTT verification on startup
+pending_session_restorations = {}  # ps5_id -> list of session dicts
 
 def discover_users_from_ps5_mqtt():
     """Discover users from ps5-mqtt configuration and MQTT topics"""
@@ -154,11 +156,15 @@ def on_connect(client, userdata, flags, reason_code, properties):
         # Discover users from ps5-mqtt configuration
         discover_users_from_ps5_mqtt()
         
-        # Subscribe to ps5-mqtt topics
+        # Subscribe to ps5-mqtt topics with QoS 1 to ensure we receive retained messages
         topic_prefix = config.get('mqtt_topic_prefix', 'ps5-mqtt')
         subscribe_topic = f"{topic_prefix}/#"
-        logger.info(f"Subscribing to MQTT topic: {subscribe_topic}")
-        client.subscribe(subscribe_topic)
+        logger.info(f"Subscribing to MQTT topic: {subscribe_topic} (QoS 1 for retained messages)")
+        client.subscribe(subscribe_topic, qos=1)
+        
+        # If we have pending session restorations, log which PS5s we're waiting for
+        if pending_session_restorations:
+            logger.info(f"Waiting for retained MQTT messages from {len(pending_session_restorations)} PS5(s) to verify session restoration")
         
         logger.info(f"Subscribed to MQTT topics with prefix: {topic_prefix}")
         # Publish discovery for all known users now that we're connected
@@ -168,6 +174,15 @@ def on_connect(client, userdata, flags, reason_code, properties):
                     publish_user_sensors(user)
             # Immediately publish current states so entities have retained values
             update_all_sensor_states()
+            
+            # Log current active sessions after MQTT connection (restoration may happen via retained messages)
+            if time_manager:
+                # Give a moment for retained messages to arrive, then log sessions
+                def log_sessions_delayed():
+                    time.sleep(2)  # Wait 2 seconds for retained messages to arrive
+                    if time_manager:
+                        time_manager.log_all_active_sessions()
+                threading.Thread(target=log_sessions_delayed, daemon=True).start()
         except Exception as e:
             logger.warning(f"Failed to publish discovery on connect: {e}")
     else:
@@ -198,6 +213,8 @@ def on_message(client, userdata, msg):
             # Handle the main ps5-mqtt/{device_id} topic which contains all device info
             if len(parts) == 2 and parts[0] == 'ps5-mqtt':
                 logger.info(f"Processing as device update for PS5 {ps5_id}")
+                # Check if this is a retained message that can verify pending sessions
+                handle_session_restoration(ps5_id, data)
                 handle_device_update(ps5_id, data)
             else:
                 logger.debug(f"Ignoring non-device topic: {parts}")
@@ -206,6 +223,85 @@ def on_message(client, userdata, msg):
         logger.error(f"Failed to parse JSON from topic {topic}, payload: {payload}")
     except Exception as e:
         logger.error(f"Error handling MQTT message: {e}")
+
+def handle_session_restoration(ps5_id, data):
+    """Check if pending sessions should be restored based on MQTT retained message"""
+    global pending_session_restorations, time_manager
+    
+    # Check if we have pending sessions for this PS5
+    if ps5_id not in pending_session_restorations:
+        return  # No pending sessions for this PS5
+    
+    pending_sessions = pending_session_restorations[ps5_id]
+    if not pending_sessions:
+        return  # Empty list
+    
+    # Get current power state from MQTT message
+    power = data.get('power')
+    device_status = data.get('device_status')
+    activity = data.get('activity')
+    players = data.get('players', [])
+    
+    logger.info(f"Checking session restoration for PS5 {ps5_id}: power={power}, device_status={device_status}, activity={activity}, players={players}")
+    
+    # According to ps5-mqtt-plugin-doc.txt:
+    # - AWAKE = session should be active
+    # - STANDBY = session should be ended
+    # - UNKNOWN + offline = device unreachable, session should be ended
+    
+    if power == 'AWAKE' and device_status == 'online':
+        # PS5 is still awake - restore sessions
+        logger.info(f"PS5 {ps5_id} is AWAKE - restoring {len(pending_sessions)} session(s)")
+        for session in pending_sessions:
+            try:
+                # Only restore if the user is still in the players list (or if activity is playing/idle)
+                # This ensures we're restoring the right session
+                user = session['user']
+                should_restore = False
+                
+                if activity == 'playing' and user in players:
+                    # User is actively playing - definitely restore
+                    should_restore = True
+                    logger.info(f"Restoring session for {user} - they are actively playing on PS5 {ps5_id}")
+                elif activity in ['playing', 'idle']:
+                    # PS5 is awake and active, but we can't verify user from players list
+                    # Still restore - better to over-restore than miss sessions
+                    # The session will be corrected when we get the next update with players
+                    should_restore = True
+                    logger.info(f"Restoring session for {user} - PS5 {ps5_id} is AWAKE (activity: {activity})")
+                
+                if should_restore:
+                    time_manager.restore_session(
+                        session['db_id'],
+                        session['user'],
+                        session['game'],
+                        session['start_time'],
+                        session['ps5_id']
+                    )
+                else:
+                    # PS5 is awake but user not in players - mark as ended
+                    logger.info(f"PS5 {ps5_id} is AWAKE but {user} not in players list - marking session as ended")
+                    time_manager.mark_session_ended(session['db_id'], ended_normally=False)
+            except Exception as e:
+                logger.error(f"Failed to restore session {session.get('db_id')}: {e}")
+    else:
+        # PS5 is STANDBY or UNKNOWN - mark all sessions as ended
+        logger.info(f"PS5 {ps5_id} is {power} (status: {device_status}) - marking {len(pending_sessions)} session(s) as ended")
+        for session in pending_sessions:
+            try:
+                # Mark as ended with ended_normally=False since the plugin restarted
+                time_manager.mark_session_ended(session['db_id'], ended_normally=False)
+                logger.info(f"Marked session {session['db_id']} for {session['user']} as ended (PS5 went to {power})")
+            except Exception as e:
+                logger.error(f"Failed to mark session {session.get('db_id')} as ended: {e}")
+    
+    # Clear pending sessions for this PS5 - we've handled them
+    del pending_session_restorations[ps5_id]
+    logger.info(f"Cleared pending session restorations for PS5 {ps5_id}")
+    
+    # If all pending restorations are complete, log summary of active sessions
+    if not pending_session_restorations and time_manager:
+        time_manager.log_all_active_sessions()
 
 def handle_device_update(ps5_id, data):
     """Handle complete device update from ps5-mqtt"""
@@ -316,6 +412,24 @@ def main():
             logger.info("No persisted users found in DB yet")
     except Exception as e:
         logger.warning(f"Failed to initialize users from DB: {e}")
+    
+    # Load active sessions from database for restoration
+    global pending_session_restorations
+    try:
+        active_sessions = time_manager.get_active_sessions_from_db()
+        if active_sessions:
+            logger.info(f"Found {len(active_sessions)} active session(s) in database that need verification")
+            # Group sessions by PS5 ID
+            for session in active_sessions:
+                ps5_id = session['ps5_id']
+                if ps5_id not in pending_session_restorations:
+                    pending_session_restorations[ps5_id] = []
+                pending_session_restorations[ps5_id].append(session)
+            logger.info(f"Sessions grouped by PS5: {[(ps5_id, len(sessions)) for ps5_id, sessions in pending_session_restorations.items()]}")
+        else:
+            logger.info("No active sessions found in database")
+    except Exception as e:
+        logger.warning(f"Failed to load active sessions from DB: {e}")
     
     # Get MQTT configuration (automatic or manual)
     mqtt_config = get_mqtt_config()
