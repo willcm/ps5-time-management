@@ -365,73 +365,9 @@ class PS5TimeManager:
                             elapsed = (now - today_start).total_seconds()
                             active_time += elapsed / 60
                 
-                # If no active sessions in memory, check for active session via MQTT retained message or HA
-                # BUT: Don't restore if we know the device is in STANDBY (check latest device status AND ps5-mqtt retained state)
-                should_check_restored = True
-                device_in_standby = False
-                
-                try:
-                    # Check if device is in standby (if we have latest status)
-                    if latest_device_status and latest_device_status.get('power') == 'STANDBY':
-                        device_in_standby = True
-                        logger.debug(f"Skipping session restoration for {user} - device is in STANDBY (from latest status)")
-                except Exception:
-                    pass
-                
-                # Also check ps5-mqtt retained message for power state if we have MQTT client and config
-                if not device_in_standby and self.mqtt_client and self.mqtt_config:
-                    try:
-                        topic_prefix = self.mqtt_config.get('mqtt_topic_prefix', 'ps5-mqtt')
-                        # Check all known PS5s from latest_device_status or try common PS5 ID pattern
-                        ps5_ids_to_check = []
-                        if latest_device_status and latest_device_status.get('ps5_id'):
-                            ps5_ids_to_check.append(latest_device_status.get('ps5_id'))
-                        # Also check if we have any active sessions with PS5 IDs (except restored ones)
-                        for session in self.active_sessions.values():
-                            ps5_id = session.get('ps5_id')
-                            if ps5_id and ps5_id != 'unknown' and ps5_id not in ps5_ids_to_check:
-                                ps5_ids_to_check.append(ps5_id)
-                        
-                        # If no PS5 IDs found, we can't check - proceed with restoration
-                        if not ps5_ids_to_check:
-                            logger.debug(f"No PS5 IDs available to check power state for {user}, will check session active state")
-                        else:
-                            # Check power state from ps5-mqtt retained message for at least one PS5
-                            for ps5_id in ps5_ids_to_check:
-                                power_topic = f"{topic_prefix}/{ps5_id}"
-                                power_check_received = threading.Event()
-                                power_state = [None]
-                                
-                                def on_message_check_power(client, userdata, msg):
-                                    if msg.topic == power_topic:
-                                        try:
-                                            import json
-                                            power_data = json.loads(msg.payload.decode('utf-8'))
-                                            power_state[0] = power_data.get('power')
-                                            power_check_received.set()
-                                        except Exception:
-                                            pass
-                                
-                                original_on_message = self.mqtt_client.on_message
-                                self.mqtt_client.on_message = on_message_check_power
-                                self.mqtt_client.subscribe(power_topic, qos=1)
-                                
-                                if power_check_received.wait(timeout=0.3):
-                                    if power_state[0] == 'STANDBY':
-                                        device_in_standby = True
-                                        logger.info(f"Device {ps5_id} is in STANDBY (from ps5-mqtt retained message) - skipping session restoration for {user}")
-                                        break
-                                else:
-                                    logger.debug(f"No retained power state message found for PS5 {ps5_id}")
-                                
-                                self.mqtt_client.on_message = original_on_message
-                    except Exception as e:
-                        logger.debug(f"Failed to check ps5-mqtt power state for restoration check: {e}")
-                
-                if device_in_standby:
-                    should_check_restored = False
-                
-                if active_time == 0 and should_check_restored:
+                # If no active sessions in memory, check ps5-mqtt retained message as source of truth
+                # ps5-mqtt publishes: power (STANDBY/AWAKE), activity (playing/idle/none), players (array)
+                if active_time == 0:
                     # First try MQTT retained message (faster and more reliable after restart)
                     session_active_state = None
                     if self.mqtt_client:
