@@ -11,8 +11,9 @@ class ColoredFormatter(logging.Formatter):
     RESET = '\033[0m'
     
     def format(self, record):
-        # Check if this is a power state change message (WARNING level)
-        if record.levelno == logging.WARNING and 'Power state changed' in record.getMessage():
+        # Check if this is a power state change or STANDBY detection message (WARNING level)
+        msg = record.getMessage()
+        if record.levelno == logging.WARNING and ('Power state changed' in msg or 'STANDBY mode' in msg):
             # Format with orange color
             original_msg = super().format(record)
             return f"{self.ORANGE}{original_msg}{self.RESET}"
