@@ -80,9 +80,11 @@ def publish_user_sensors(user):
         },
         {
             'name': f'PS5 {user} Session Active',
-            'unique_id': f'ps5_time_management_{user.lower()}_active',
+            'unique_id': f'ps5_time_management_{user.lower()}_session_active',
             'state_topic': f'ps5_time_management/{user}/active',
-            'icon': 'mdi:play'
+            'icon': 'mdi:play',
+            'binary_sensor': True,
+            'device_class': None  # No device class for generic binary sensor
         },
         {
             'name': f'PS5 {user} Shutdown Warning',
@@ -188,9 +190,10 @@ def update_user_sensor_states(user):
         current_game = current_session['game'] if current_session else 'None'
         mqtt_client.publish(f"{base_topic}/game", current_game, retain=True)
         
-        # Session active
+        # Session active (binary sensor - retained so state persists after restart)
         session_active = 'ON' if current_session else 'OFF'
         mqtt_client.publish(f"{base_topic}/active", session_active, retain=True)
+        logger.debug(f"Published session_active={session_active} for {user} (retained)")
         
         # Shutdown warning binary sensor
         warn_on = 'OFF'

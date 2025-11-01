@@ -363,8 +363,11 @@ class PS5TimeManager:
                 # If no active sessions in memory but binary sensor is ON, check HA for active session
                 if active_time == 0 and self.ha_client:
                     try:
+                        # Check binary sensor for active session state
                         entity_id = f"binary_sensor.ps5_time_management_{user.lower()}_session_active"
+                        logger.info(f"Checking binary sensor state for {user} after restart: {entity_id}")
                         current_state = self.ha_client.get_state(entity_id)
+                        logger.info(f"Binary sensor state response for {user}: {current_state}")
                         if current_state and current_state.get('state', '').upper() == 'ON':
                             # Binary sensor is ON - there's an active session we lost track of
                             last_changed_str = current_state.get('last_changed') or current_state.get('last_updated')
@@ -387,9 +390,11 @@ class PS5TimeManager:
                                         active_time = elapsed / 60
                                         logger.info(f"Detected active session from binary sensor for {user}: {active_time:.1f} min since midnight")
                                 except Exception as e:
-                                    logger.debug(f"Failed to parse last_changed for binary sensor state: {e}")
+                                    logger.warning(f"Failed to parse last_changed for binary sensor state: {e}")
+                        else:
+                            logger.debug(f"Binary sensor {entity_id} is OFF or not found")
                     except Exception as e:
-                        logger.debug(f"Failed to check binary sensor state for active session: {e}")
+                        logger.warning(f"Failed to check binary sensor state for active session: {e}")
                 
                 total_time = ha_time + active_time
                 logger.info(f"User {user} time today: {ha_time:.1f} min (HA) + {active_time:.1f} min active = {total_time:.1f} min total")
