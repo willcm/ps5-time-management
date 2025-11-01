@@ -18,9 +18,9 @@ start_shutdown_warning_func = None
 update_all_sensor_states_func = None
 publish_user_sensors_func = None
 
-# Track previous power state per PS5 to detect transitions
-# Format: {ps5_id: 'AWAKE' | 'STANDBY' | 'UNKNOWN'}
-previous_power_state = {}
+# Track previous activity state per PS5 to detect transitions
+# Format: {ps5_id: 'playing' | 'idle' | 'none' | None}
+previous_activity_state = {}
 
 
 def set_dependencies(tm, mqtt, mqtt_conn, cfg, discovered, latest_status, debug_user, 
@@ -49,13 +49,23 @@ def handle_device_update(ps5_id, data):
     
     # Extract players from the message
     players = data.get('players', [])
-    # Update latest device status snapshot
+    
+    # IMPORTANT: Get previous activity state BEFORE updating latest_device_status
+    # so we can detect transitions properly
+    power = data.get('power')
+    device_status = data.get('device_status')
+    activity = data.get('activity')
+    
+    # Get previous activity state for this PS5 (tracked per device to handle multiple PS5s)
+    prev_activity = previous_activity_state.get(ps5_id)
+    
+    # NOW update latest device status snapshot
     try:
         latest_device_status.update({
             'ps5_id': ps5_id,
-            'power': data.get('power', latest_device_status.get('power')),
-            'device_status': data.get('device_status', latest_device_status.get('device_status')),
-            'activity': data.get('activity', latest_device_status.get('activity')),
+            'power': power or latest_device_status.get('power'),
+            'device_status': device_status or latest_device_status.get('device_status'),
+            'activity': activity or latest_device_status.get('activity'),
             'players': players or [],
             'title_id': data.get('title_id'),
             'title_name': data.get('title_name'),
@@ -81,18 +91,14 @@ def handle_device_update(ps5_id, data):
     # Session lifecycle:
     # - activity transitions TO 'playing' = start session
     # - activity transitions FROM 'playing' (to 'idle', 'none', or device goes offline) = end session
-    power = data.get('power')
-    device_status = data.get('device_status')
-    activity = data.get('activity')
-    players = data.get('players', [])
-    
-    # Get previous activity state for this PS5 (stored in latest_device_status)
-    prev_activity = latest_device_status.get('activity') if latest_device_status.get('ps5_id') == ps5_id else None
     
     # Detect activity transition TO 'playing'
     activity_transitioned_to_playing = (activity == 'playing' and prev_activity != 'playing')
     # Detect activity transition FROM 'playing'
     activity_transitioned_from_playing = (prev_activity == 'playing' and activity != 'playing')
+    
+    # Update stored activity state for this PS5 (after checking transitions)
+    previous_activity_state[ps5_id] = activity
     
     # Handle transition TO 'playing': Start session
     if activity_transitioned_to_playing and players:
