@@ -186,8 +186,8 @@ def handle_device_update(ps5_id, data):
             if session['ps5_id'] == ps5_id:
                 session_user = session['user']
                 # End session - device is idle, no game active
-                    time_manager.end_session(session_id)
-                    logger.debug(f"Ended session for {session_user} on PS5 {ps5_id} (device is idle)")
+                time_manager.end_session(session_id)
+                logger.debug(f"Ended session for {session_user} on PS5 {ps5_id} (device is idle)")
     elif activity == 'none':
         # Device is in STANDBY or UNKNOWN - this is handled by power state check below
         logger.debug(f"Device {ps5_id} activity is 'none' (power state: {latest_device_status.get('power')})")
