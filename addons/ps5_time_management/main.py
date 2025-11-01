@@ -208,11 +208,11 @@ def on_message(client, userdata, msg):
         
         if len(parts) >= 2:
             ps5_id = parts[1]
-            logger.info(f"Extracted PS5 ID: {ps5_id}")
+            logger.debug(f"Extracted PS5 ID: {ps5_id}")
             
             # Handle the main ps5-mqtt/{device_id} topic which contains all device info
             if len(parts) == 2 and parts[0] == 'ps5-mqtt':
-                logger.info(f"Processing as device update for PS5 {ps5_id}")
+                logger.debug(f"Processing as device update for PS5 {ps5_id}")
                 # Check if this is a retained message that can verify pending sessions
                 handle_session_restoration(ps5_id, data)
                 handle_device_update(ps5_id, data)

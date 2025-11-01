@@ -45,7 +45,7 @@ def set_dependencies(tm, mqtt, mqtt_conn, cfg, discovered, latest_status, debug_
 
 def handle_device_update(ps5_id, data):
     """Handle complete device update from ps5-mqtt"""
-    logger.info(f"Processing device update for PS5 {ps5_id}: {data}")
+    logger.debug(f"Processing device update for PS5 {ps5_id}: {data}")
     
     # Extract players from the message
     players = data.get('players', [])
