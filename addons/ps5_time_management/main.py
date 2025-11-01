@@ -209,8 +209,8 @@ def on_message(client, userdata, msg):
         logger.debug(f"Ignoring our own sensor state topic: {topic}")
         return
     
-    # Log MQTT messages we actually process
-    logger.info(f"MQTT MESSAGE RECEIVED - Topic: {topic}, Payload: {payload}")
+    # Log MQTT messages we actually process (at debug level to reduce noise)
+    logger.debug(f"MQTT MESSAGE RECEIVED - Topic: {topic}, Payload: {payload}")
     
     try:
         # Ignore our own command/set subtopics before attempting JSON parse
@@ -218,15 +218,15 @@ def on_message(client, userdata, msg):
             return
         
         data = json.loads(payload)
-        logger.info(f"Parsed MQTT data: {data}")
+        logger.debug(f"Parsed MQTT data: {data}")
         
         if len(parts) >= 2:
             ps5_id = parts[1]
-            logger.info(f"Extracted PS5 ID: {ps5_id}")
+            logger.debug(f"Extracted PS5 ID: {ps5_id}")
             
             # Handle the main ps5-mqtt/{device_id} topic which contains all device info
             if len(parts) == 2 and parts[0] == 'ps5-mqtt':
-                logger.info(f"Processing as device update for PS5 {ps5_id}")
+                logger.debug(f"Processing as device update for PS5 {ps5_id}")
                 handle_device_update(ps5_id, data)
             else:
                 logger.debug(f"Ignoring non-device topic: {parts}")

@@ -41,7 +41,7 @@ def set_dependencies(tm, mqtt, mqtt_conn, cfg, discovered, latest_status, debug_
 
 def handle_device_update(ps5_id, data):
     """Handle complete device update from ps5-mqtt"""
-    logger.info(f"Processing device update for PS5 {ps5_id}: {data}")
+    logger.debug(f"Processing device update for PS5 {ps5_id}: {data}")
     
     # Extract players from the message
     players = data.get('players', [])
@@ -164,7 +164,7 @@ def handle_device_update(ps5_id, data):
                     if session['user'] == player and session.get('restored'):
                         # Replace restored session with proper one
                         del time_manager.active_sessions[sid]
-                        logger.info(f"Replaced restored session for {player} with proper session from device update")
+                        logger.debug(f"Replaced restored session for {player} with proper session from device update")
                         break
                 
                 session_id = time_manager.start_session(player, game_name, ps5_id)
@@ -172,7 +172,7 @@ def handle_device_update(ps5_id, data):
                     if debug_user_name and debug_user_name == player:
                         logger.info(f"[DEBUG:{player}] Session started (ID: {session_id}) for game {game_name}")
                     else:
-                        logger.info(f"Started session for {player} playing {game_name} (ID: {session_id})")
+                        logger.debug(f"Started session for {player} playing {game_name} (ID: {session_id})")
                 
                 # Always update heartbeat for active players (whether new or existing session)
                 time_manager.update_session_heartbeat(player, ps5_id)
@@ -180,14 +180,14 @@ def handle_device_update(ps5_id, data):
         # Device is AWAKE but no active game
         # According to ps5-mqtt docs: when idle, players array is NOT present (empty or missing)
         # End all sessions for this PS5 since there's no active game
-        logger.info(f"Device {ps5_id} is AWAKE but idle (no active game) - ending all sessions")
+        logger.debug(f"Device {ps5_id} is AWAKE but idle (no active game) - ending all sessions")
         current_players = set(players or [])
         for session_id, session in list(time_manager.active_sessions.items()):
             if session['ps5_id'] == ps5_id:
                 session_user = session['user']
                 # End session - device is idle, no game active
-                time_manager.end_session(session_id)
-                logger.info(f"Ended session for {session_user} on PS5 {ps5_id} (device is idle)")
+                    time_manager.end_session(session_id)
+                    logger.debug(f"Ended session for {session_user} on PS5 {ps5_id} (device is idle)")
     elif activity == 'none':
         # Device is in STANDBY or UNKNOWN - this is handled by power state check below
         logger.debug(f"Device {ps5_id} activity is 'none' (power state: {latest_device_status.get('power')})")
@@ -228,16 +228,16 @@ def handle_device_update(ps5_id, data):
                 # End session - either matches this PS5 or is a restored session with unknown PS5
                 time_manager.end_session(session_id)
                 sessions_ended.append(session_id)
-                logger.info(f"Ended session {session_id} due to PS5 {ps5_id} going to {reason}")
+                logger.debug(f"Ended session {session_id} due to PS5 {ps5_id} going to {reason}")
         
         if sessions_ended:
-            logger.info(f"Ended {len(sessions_ended)} session(s) due to PS5 {ps5_id} going to {reason}")
+            logger.debug(f"Ended {len(sessions_ended)} session(s) due to PS5 {ps5_id} going to {reason}")
         
         # Clear all restored sessions when device is STANDBY or offline
         restored_sessions = [sid for sid, s in time_manager.active_sessions.items() if s.get('restored')]
         for sid in restored_sessions:
             time_manager.end_session(sid)
-            logger.info(f"Cleared restored session {sid} because device is {reason}")
+            logger.debug(f"Cleared restored session {sid} because device is {reason}")
     
     # Update sensor states for all discovered users (only if MQTT is ready)
     if mqtt_connected and mqtt_client is not None:
