@@ -197,7 +197,7 @@ class PS5TimeManager:
         # Prevent duplicate sessions for same user on same PS5
         for session_id, s in self.active_sessions.items():
             if s['user'] == user and s.get('ps5_id') == ps5_id:
-                logger.info(f"Duplicate session suppressed for {user} on PS5 {ps5_id} (existing session: {session_id})")
+                logger.debug(f"Duplicate session suppressed for {user} on PS5 {ps5_id} (existing session: {session_id})")
                 return False
         
         now = datetime.now()
@@ -251,7 +251,7 @@ class PS5TimeManager:
                              ON CONFLICT(game) DO UPDATE SET filename=excluded.filename, last_seen=CURRENT_TIMESTAMP''',
                           (game_name, filename))
                 conn.commit(); conn.close()
-                logger.info(f"Game cover already cached: '{game_name}' -> {filepath}")
+                logger.debug(f"Game cover already cached: '{game_name}' -> {filepath}")
                 return filename
 
             # Download and save
@@ -669,7 +669,7 @@ class PS5TimeManager:
                 logger.debug(f"Active session for {user}: {session['game']} - {session_minutes:.1f} minutes elapsed today")
         
         total_time = completed_time + active_time
-        logger.info(f"User {user} time today (SQLite): {completed_time} min completed + {active_time:.1f} min active ({active_count} sessions) = {total_time:.1f} min total")
+        logger.debug(f"User {user} time today (SQLite): {completed_time} min completed + {active_time:.1f} min active ({active_count} sessions) = {total_time:.1f} min total")
         return int(total_time)  # Use int() (floor) - only increment when full minute elapsed
     
     def get_user_weekly_time(self, user):
@@ -726,7 +726,7 @@ class PS5TimeManager:
                     active_time += elapsed / 60
         
         total_time = completed_time + active_time
-        logger.info(f"User {user} weekly time (SQLite): {completed_time} min completed + {active_time:.1f} min active = {total_time:.1f} min total")
+        logger.debug(f"User {user} weekly time (SQLite): {completed_time} min completed + {active_time:.1f} min active = {total_time:.1f} min total")
         return int(total_time)  # Use int() (floor) - only increment when full minute elapsed
     
     def get_user_monthly_time(self, user):
@@ -785,7 +785,7 @@ class PS5TimeManager:
                     active_time += elapsed / 60
         
         total_time = completed_time + active_time
-        logger.info(f"User {user} monthly time (SQLite): {completed_time} min completed + {active_time:.1f} min active = {total_time:.1f} min total")
+        logger.debug(f"User {user} monthly time (SQLite): {completed_time} min completed + {active_time:.1f} min active = {total_time:.1f} min total")
         return int(total_time)  # Use int() (floor) - only increment when full minute elapsed
     
     def get_top_games(self, user, days=30, limit=10):
