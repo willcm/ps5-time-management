@@ -52,7 +52,12 @@ def register_health_routes():
     @app.route('/api/health', methods=['GET'])
     def health_check():
         """Health check endpoint"""
-        return jsonify({'status': 'ok'})
+        use_ha = time_manager.use_ha_history if time_manager else False
+        return jsonify({
+            'status': 'ok',
+            'service': 'ps5_time_management',
+            'use_ha_history': use_ha
+        })
 
 
 def register_status_routes():
@@ -504,6 +509,29 @@ def register_mqtt_routes():
             publish_user_sensors_func(user)
             return jsonify({'republished': 1, 'user': user})
         except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    @app.route('/api/cleanup/all', methods=['POST'])
+    def clear_all_stats():
+        """Clear all stats for all users (SQLite only - HA history must be cleared manually)"""
+        try:
+            from utils.data_cleanup import clear_all_user_data
+            # Import update_all_sensor_states from mqtt.sensors
+            from mqtt.sensors import update_all_sensor_states as _update_all_sensor_states
+            cleared_users = clear_all_user_data(
+                time_manager, 
+                discovered_users, 
+                _update_all_sensor_states
+            )
+            
+            return jsonify({
+                'status': 'success',
+                'message': f'Cleared SQLite stats for {len(cleared_users)} users',
+                'users': cleared_users,
+                'note': 'Note: Home Assistant history must be cleared manually via Developer Tools > Clear History if you want to remove all historical data.'
+            })
+        except Exception as e:
+            logger.error(f"Failed to clear all stats: {e}")
             return jsonify({'error': str(e)}), 500
 
     @app.route('/api/shutdown_events', methods=['GET'])

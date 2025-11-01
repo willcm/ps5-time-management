@@ -19,12 +19,22 @@ def set_latest_device_status(status):
 
 
 class PS5TimeManager:
-    def __init__(self, db_path):
+    def __init__(self, db_path, ha_client=None, use_ha_history=True):
+        """Initialize PS5TimeManager
+        
+        Args:
+            db_path: Path to SQLite database
+            ha_client: HomeAssistantClient instance (optional)
+            use_ha_history: Whether to use HA history as source of truth
+        """
         self.db_path = db_path
         self.init_database()
         self.active_sessions = {}
         self.user_limits = {}
         self.timer_thread = None
+        self.ha_client = ha_client
+        self.use_ha_history = use_ha_history and ha_client is not None
+        self._ha_available = None  # Cache HA availability check
     
     def add_user_if_new(self, user: str) -> None:
         """Persist a discovered user if not already stored."""
@@ -183,17 +193,27 @@ class PS5TimeManager:
                 logger.info(f"Duplicate session suppressed for {user} on PS5 {ps5_id} (existing session: {session_id})")
                 return False
         
+        now = datetime.now()
         session_id = f"{ps5_id}:{user}:{int(time.time())}"
         self.active_sessions[session_id] = {
             'user': user,
             'game': game,
-            'start_time': datetime.now(),
+            'start_time': now,
             'ps5_id': ps5_id,
-            'warnings_sent': []
+            'warnings_sent': [],
+            'last_update': now  # Track last MQTT update for timeout detection
         }
         
         logger.info(f"Started session for user {user} playing {game}")
         return session_id
+    
+    def update_session_heartbeat(self, user, ps5_id):
+        """Update the last_update timestamp for active sessions (called on MQTT updates)"""
+        now = datetime.now()
+        for session_id, session in self.active_sessions.items():
+            if session['user'] == user and session.get('ps5_id') == ps5_id:
+                session['last_update'] = now
+                logger.debug(f"Updated heartbeat for session {session_id}")
 
     def _ensure_image_dir(self):
         images_dir = '/data/game_images'
@@ -263,7 +283,11 @@ class PS5TimeManager:
         return None
     
     def end_session(self, session_id):
-        """End a gaming session and save to database"""
+        """End a gaming session and save minimal session record to database
+        
+        Note: Time stats are now tracked in Home Assistant history, not SQLite.
+        We only save session records for reference/backup purposes.
+        """
         if session_id not in self.active_sessions:
             logger.warning(f"Session {session_id} not found")
             return False
@@ -275,7 +299,8 @@ class PS5TimeManager:
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
         
-        # Save to database
+        # Save minimal session record to database (for reference only)
+        # Stats are tracked in HA history, not SQLite
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         
@@ -284,65 +309,67 @@ class PS5TimeManager:
                      VALUES (?, ?, ?, ?, ?, ?)''',
                  (user, game, start_time, end_time, int(duration), session['ps5_id']))
         
-        # Update daily stats - use proper UPSERT logic
-        today = start_time.date().isoformat()
-        
-        # First, try to get existing stats
-        c.execute('''SELECT total_minutes, session_count FROM user_stats 
-                     WHERE user=? AND date=?''',
-                 (user, today))
-        
-        result = c.fetchone()
-        if result:
-            # Update existing record
-            existing_minutes, existing_sessions = result
-            new_minutes = existing_minutes + int(duration/60)
-            new_sessions = existing_sessions + 1
-            
-            c.execute('''UPDATE user_stats 
-                         SET total_minutes=?, session_count=? 
-                         WHERE user=? AND date=?''',
-                     (new_minutes, new_sessions, user, today))
-        else:
-            # Insert new record
-            c.execute('''INSERT INTO user_stats 
-                         (user, date, total_minutes, session_count)
-                         VALUES (?, ?, ?, ?)''',
-                     (user, today, int(duration/60), 1))
-        
-        # Update game stats - use proper UPSERT logic
-        c.execute('''SELECT minutes_played FROM game_stats 
-                     WHERE user=? AND game=? AND date=?''',
-                 (user, game, today))
-        
-        result = c.fetchone()
-        if result:
-            # Update existing record
-            existing_minutes = result[0]
-            new_minutes = existing_minutes + int(duration/60)
-            
-            c.execute('''UPDATE game_stats 
-                         SET minutes_played=? 
-                         WHERE user=? AND game=? AND date=?''',
-                     (new_minutes, user, game, today))
-        else:
-            # Insert new record
-            c.execute('''INSERT INTO game_stats 
-                         (user, game, date, minutes_played)
-                         VALUES (?, ?, ?, ?)''',
-                     (user, game, today, int(duration/60)))
-        
         conn.commit()
         conn.close()
         
-        logger.info(f"Ended session for user {user} playing {game} ({int(duration/60)} minutes)")
+        logger.info(f"Ended session for user {user} playing {game} ({int(duration/60)} minutes) - stats tracked in HA history")
         return True
     
+    def _is_ha_available(self):
+        """Check if HA API is available (with caching)"""
+        if not self.use_ha_history or not self.ha_client:
+            return False
+        
+        if self._ha_available is None:
+            self._ha_available = self.ha_client.is_available()
+            if self._ha_available:
+                logger.debug("HA API is available, using HA history for time calculations")
+            else:
+                logger.info("HA API not available, falling back to SQLite for time calculations")
+        
+        return self._ha_available
+    
     def get_user_time_today(self, user):
-        """Get total time played today by user (including active sessions)"""
+        """Get total time played today by user
+        
+        Uses HA history if available, otherwise falls back to SQLite.
+        """
+        today_date = datetime.now().date()
+        
+        # Try HA history first (single source of truth)
+        if self._is_ha_available():
+            try:
+                from ha.history import get_daily_time_from_ha
+                ha_time = get_daily_time_from_ha(self.ha_client, user, today_date)
+                logger.debug(f"User {user} time today from HA: {ha_time:.1f} min")
+                
+                # Add active session time (HA only tracks completed sessions)
+                active_time = 0
+                for session_id, session in self.active_sessions.items():
+                    if session['user'] == user:
+                        session_start = session['start_time']
+                        now = datetime.now()
+                        
+                        # Only count time from today
+                        if session_start.date() == today_date:
+                            elapsed = (now - session_start).total_seconds()
+                            active_time += elapsed / 60
+                        else:
+                            # Session started yesterday - count from midnight
+                            today_start = datetime.combine(today_date, datetime.min.time())
+                            elapsed = (now - today_start).total_seconds()
+                            active_time += elapsed / 60
+                
+                total_time = ha_time + active_time
+                logger.info(f"User {user} time today: {ha_time:.1f} min (HA) + {active_time:.1f} min active = {total_time:.1f} min total")
+                return int(round(total_time))
+            except Exception as e:
+                logger.warning(f"Failed to get time from HA, falling back to SQLite: {e}")
+        
+        # Fallback to SQLite
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        today = datetime.now().date().isoformat()
+        today = today_date.isoformat()
         
         # Get completed sessions from database
         c.execute('''SELECT total_minutes FROM user_stats 
@@ -353,33 +380,70 @@ class PS5TimeManager:
         completed_time = result[0] if result and result[0] is not None else 0
         conn.close()
         
-        # Add time from active sessions
+        # Add time from active sessions (only count today's portion)
         active_time = 0
         active_count = 0
+        today_start = datetime.combine(today_date, datetime.min.time())
+        
         for session_id, session in self.active_sessions.items():
             if session['user'] == user:
-                # Calculate time elapsed in current session
-                elapsed = (datetime.now() - session['start_time']).total_seconds()
-                session_minutes = elapsed / 60
+                session_start = session['start_time']
+                now = datetime.now()
+                
+                # Only count time from today (handle sessions that started yesterday)
+                if session_start.date() == today_date:
+                    # Session started today - count all elapsed time
+                    elapsed = (now - session_start).total_seconds()
+                    session_minutes = elapsed / 60
+                else:
+                    # Session started before today - only count time since midnight
+                    elapsed = (now - today_start).total_seconds()
+                    session_minutes = elapsed / 60
+                
                 active_time += session_minutes
                 active_count += 1
-                logger.debug(f"Active session for {user}: {session['game']} - {session_minutes:.1f} minutes elapsed")
+                logger.debug(f"Active session for {user}: {session['game']} - {session_minutes:.1f} minutes elapsed today")
         
         total_time = completed_time + active_time
-        logger.info(f"User {user} time today: {completed_time} min completed (from DB) + {active_time:.1f} min active ({active_count} sessions) = {total_time:.1f} min total")
+        logger.info(f"User {user} time today (SQLite): {completed_time} min completed + {active_time:.1f} min active ({active_count} sessions) = {total_time:.1f} min total")
         return int(round(total_time))  # Round instead of truncate for better accuracy
     
     def get_user_weekly_time(self, user):
-        """Get total time played this week by user (including active sessions)"""
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        """Get total time played this week by user
         
+        Uses HA history if available, otherwise falls back to SQLite.
+        """
         # Calculate week start (Monday)
         today = datetime.now().date()
         week_start_date = today - timedelta(days=today.weekday())
+        
+        # Try HA history first (single source of truth)
+        if self._is_ha_available():
+            try:
+                from ha.history import get_weekly_time_from_ha
+                ha_time = get_weekly_time_from_ha(self.ha_client, user, week_start_date)
+                logger.debug(f"User {user} weekly time from HA: {ha_time:.1f} min")
+                
+                # Add active session time
+                active_time = 0
+                for session_id, session in self.active_sessions.items():
+                    if session['user'] == user:
+                        session_date = session['start_time'].date()
+                        if session_date >= week_start_date:
+                            elapsed = (datetime.now() - session['start_time']).total_seconds()
+                            active_time += elapsed / 60
+                
+                total_time = ha_time + active_time
+                logger.info(f"User {user} weekly time: {ha_time:.1f} min (HA) + {active_time:.1f} min active = {total_time:.1f} min total")
+                return int(round(total_time))
+            except Exception as e:
+                logger.warning(f"Failed to get weekly time from HA, falling back to SQLite: {e}")
+        
+        # Fallback to SQLite
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
         week_start = week_start_date.isoformat()
         
-        # Get completed sessions from database for this week
         c.execute('''SELECT SUM(total_minutes) FROM user_stats 
                      WHERE user=? AND date >= ?''',
                  (user, week_start))
@@ -388,30 +452,57 @@ class PS5TimeManager:
         completed_time = result[0] if result and result[0] is not None else 0
         conn.close()
         
-        # Add time from active sessions (if they started this week)
+        # Add time from active sessions
         active_time = 0
         for session_id, session in self.active_sessions.items():
             if session['user'] == user:
                 session_date = session['start_time'].date()
-                if session_date >= week_start_date:  # Only count sessions from this week
+                if session_date >= week_start_date:
                     elapsed = (datetime.now() - session['start_time']).total_seconds()
-                    active_time += elapsed / 60  # Convert to minutes
+                    active_time += elapsed / 60
         
         total_time = completed_time + active_time
-        logger.info(f"User {user} weekly time: {completed_time} min completed (from DB) + {active_time:.1f} min active = {total_time:.1f} min total")
+        logger.info(f"User {user} weekly time (SQLite): {completed_time} min completed + {active_time:.1f} min active = {total_time:.1f} min total")
         return int(round(total_time))
     
     def get_user_monthly_time(self, user):
-        """Get total time played this month by user (including active sessions)"""
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        """Get total time played this month by user
         
+        Uses HA history if available, otherwise falls back to SQLite.
+        """
         # Calculate month start
         today = datetime.now().date()
         month_start_date = today.replace(day=1)
+        
+        # Try HA history first (single source of truth)
+        if self._is_ha_available():
+            try:
+                from ha.history import get_monthly_time_from_ha
+                year = today.year
+                month = today.month
+                ha_time = get_monthly_time_from_ha(self.ha_client, user, year, month)
+                logger.debug(f"User {user} monthly time from HA: {ha_time:.1f} min")
+                
+                # Add active session time
+                active_time = 0
+                for session_id, session in self.active_sessions.items():
+                    if session['user'] == user:
+                        session_date = session['start_time'].date()
+                        if session_date >= month_start_date:
+                            elapsed = (datetime.now() - session['start_time']).total_seconds()
+                            active_time += elapsed / 60
+                
+                total_time = ha_time + active_time
+                logger.info(f"User {user} monthly time: {ha_time:.1f} min (HA) + {active_time:.1f} min active = {total_time:.1f} min total")
+                return int(round(total_time))
+            except Exception as e:
+                logger.warning(f"Failed to get monthly time from HA, falling back to SQLite: {e}")
+        
+        # Fallback to SQLite
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
         month_start = month_start_date.isoformat()
         
-        # Get completed sessions from database for this month
         c.execute('''SELECT SUM(total_minutes) FROM user_stats 
                      WHERE user=? AND date >= ?''',
                  (user, month_start))
@@ -420,40 +511,31 @@ class PS5TimeManager:
         completed_time = result[0] if result and result[0] is not None else 0
         conn.close()
         
-        # Add time from active sessions (if they started this month)
+        # Add time from active sessions
         active_time = 0
         for session_id, session in self.active_sessions.items():
             if session['user'] == user:
                 session_date = session['start_time'].date()
-                if session_date >= month_start_date:  # Only count sessions from this month
+                if session_date >= month_start_date:
                     elapsed = (datetime.now() - session['start_time']).total_seconds()
-                    active_time += elapsed / 60  # Convert to minutes
+                    active_time += elapsed / 60
         
         total_time = completed_time + active_time
-        logger.info(f"User {user} monthly time: {completed_time} min completed (from DB) + {active_time:.1f} min active = {total_time:.1f} min total")
+        logger.info(f"User {user} monthly time (SQLite): {completed_time} min completed + {active_time:.1f} min active = {total_time:.1f} min total")
         return int(round(total_time))
     
     def get_top_games(self, user, days=30, limit=10):
-        """Get top games played by user in the last N days, with images when available"""
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        start_date = (datetime.now() - timedelta(days=days)).date().isoformat()
+        """Get top games played by user in the last N days, with images when available
         
-        c.execute('''SELECT game, SUM(minutes_played) as total 
-                     FROM game_stats 
-                     WHERE user=? AND date >= ? 
-                     GROUP BY game 
-                     ORDER BY total DESC 
-                     LIMIT ?''',
-                 (user, start_date, limit))
+        Uses HA history if available, otherwise falls back to SQLite.
+        """
+        start_date = (datetime.now() - timedelta(days=days)).date()
+        end_date = datetime.now().date()
         
-        results = c.fetchall()
-        
-        # Try to get game images from cache, otherwise attempt to cache from current status
+        # Helper function for image handling
         def normalize_title(name: str) -> str:
             try:
                 lowered = (name or '').lower()
-                # strip common trademark chars and spaces/punct
                 for ch in ['®', '™']:
                     lowered = lowered.replace(ch, '')
                 return ''.join(ch for ch in lowered if ch.isalnum() or ch == ' ').strip()
@@ -462,6 +544,63 @@ class PS5TimeManager:
 
         current_title = normalize_title(latest_device_status.get('title_name') or '') if latest_device_status else ''
         current_image = latest_device_status.get('title_image') if latest_device_status else None
+        
+        # Try HA history first (single source of truth)
+        if self._is_ha_available():
+            try:
+                from ha.history import get_game_times_from_ha
+                game_times = get_game_times_from_ha(self.ha_client, user, start_date, end_date)
+                
+                # Sort by time descending and limit
+                sorted_games = sorted(game_times.items(), key=lambda x: x[1], reverse=True)[:limit]
+                
+                games_with_images = []
+                for game_name, minutes in sorted_games:
+                    game_image = None
+                    cached = self.get_cached_game_image(game_name)
+                    if cached:
+                        try:
+                            full_path = os.path.join('/data/game_images', cached)
+                            if os.path.exists(full_path):
+                                game_image = f"/images/{cached}"
+                        except Exception:
+                            pass
+                    else:
+                        # Try from current status and cache it (fuzzy match)
+                        try:
+                            if current_title and current_image:
+                                normalized = normalize_title(game_name)
+                                if (normalized == current_title) or (normalized in current_title) or (current_title in normalized):
+                                    fname = self.cache_game_image(game_name, current_image)
+                                    if fname:
+                                        game_image = f"/images/{fname}"
+                        except Exception:
+                            pass
+                    
+                    games_with_images.append({
+                        'game': game_name,
+                        'minutes': int(round(minutes)),
+                        'image': game_image
+                    })
+                
+                return games_with_images
+            except Exception as e:
+                logger.warning(f"Failed to get top games from HA, falling back to SQLite: {e}")
+        
+        # Fallback to SQLite
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        start_date_str = start_date.isoformat()
+        
+        c.execute('''SELECT game, SUM(minutes_played) as total 
+                     FROM game_stats 
+                     WHERE user=? AND date >= ? 
+                     GROUP BY game 
+                     ORDER BY total DESC 
+                     LIMIT ?''',
+                 (user, start_date_str, limit))
+        
+        results = c.fetchall()
         games_with_images = []
         for row in results:
             game_name = row[0]
@@ -469,18 +608,13 @@ class PS5TimeManager:
             game_image = None
             cached = self.get_cached_game_image(game_name)
             if cached:
-                # Verify file actually exists on disk
                 try:
                     full_path = os.path.join('/data/game_images', cached)
                     if os.path.exists(full_path):
-                        pass
-                    else:
-                        logger.warning(f"Cached cover record found but file missing: {full_path}")
+                        game_image = f"/images/{cached}"
                 except Exception:
                     pass
-                game_image = f"/images/{cached}"
             else:
-                # Try from current status and cache it (fuzzy match)
                 try:
                     if current_title and current_image:
                         normalized = normalize_title(game_name)
@@ -501,12 +635,37 @@ class PS5TimeManager:
         return games_with_images
     
     def get_game_time_today(self, user, game):
-        """Get time played for a specific game today (including active sessions)"""
+        """Get time played for a specific game today
+        
+        Uses HA history if available, otherwise falls back to SQLite.
+        """
+        today_date = datetime.now().date()
+        
+        # Try HA history first (single source of truth)
+        if self._is_ha_available():
+            try:
+                from ha.history import get_game_times_from_ha
+                game_times = get_game_times_from_ha(self.ha_client, user, today_date, today_date)
+                ha_time = game_times.get(game, 0.0)
+                logger.debug(f"User {user} game {game} today from HA: {ha_time:.1f} min")
+                
+                # Add time from active sessions for this game
+                active_time = 0
+                for session_id, session in self.active_sessions.items():
+                    if session['user'] == user and session['game'] == game:
+                        elapsed = (datetime.now() - session['start_time']).total_seconds()
+                        active_time += elapsed / 60
+                
+                total_time = ha_time + active_time
+                return int(round(total_time))
+            except Exception as e:
+                logger.warning(f"Failed to get game time from HA, falling back to SQLite: {e}")
+        
+        # Fallback to SQLite
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        today = datetime.now().date().isoformat()
+        today = today_date.isoformat()
         
-        # Get completed sessions from database
         c.execute('''SELECT SUM(minutes_played) FROM game_stats 
                      WHERE user=? AND game=? AND date=?''',
                  (user, game, today))
@@ -526,19 +685,44 @@ class PS5TimeManager:
         return int(round(total_time))
     
     def get_game_time_weekly(self, user, game):
-        """Get time played for a specific game this week (including active sessions)"""
+        """Get time played for a specific game this week
+        
+        Uses HA history if available, otherwise falls back to SQLite.
+        """
+        today = datetime.now().date()
+        week_start = today - timedelta(days=today.weekday())
+        week_end = week_start + timedelta(days=6)
+        
+        # Try HA history first (single source of truth)
+        if self._is_ha_available():
+            try:
+                from ha.history import get_game_times_from_ha
+                game_times = get_game_times_from_ha(self.ha_client, user, week_start, week_end)
+                ha_time = game_times.get(game, 0.0)
+                logger.debug(f"User {user} game {game} weekly from HA: {ha_time:.1f} min")
+                
+                # Add time from active sessions for this game
+                active_time = 0
+                for session_id, session in self.active_sessions.items():
+                    if session['user'] == user and session['game'] == game:
+                        session_date = session['start_time'].date()
+                        if session_date >= week_start:
+                            elapsed = (datetime.now() - session['start_time']).total_seconds()
+                            active_time += elapsed / 60
+                
+                total_time = ha_time + active_time
+                return int(round(total_time))
+            except Exception as e:
+                logger.warning(f"Failed to get game weekly time from HA, falling back to SQLite: {e}")
+        
+        # Fallback to SQLite
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
+        week_start_str = week_start.isoformat()
         
-        # Calculate week start (Monday)
-        today = datetime.now().date()
-        days_since_monday = today.weekday()
-        week_start = (today - timedelta(days=days_since_monday)).isoformat()
-        
-        # Get completed sessions from database
         c.execute('''SELECT SUM(minutes_played) FROM game_stats 
                      WHERE user=? AND game=? AND date >= ?''',
-                 (user, game, week_start))
+                 (user, game, week_start_str))
         
         result = c.fetchone()
         completed_time = result[0] if result and result[0] is not None else 0
@@ -555,18 +739,48 @@ class PS5TimeManager:
         return int(round(total_time))
     
     def get_game_time_monthly(self, user, game):
-        """Get time played for a specific game this month (including active sessions)"""
+        """Get time played for a specific game this month
+        
+        Uses HA history if available, otherwise falls back to SQLite.
+        """
+        today = datetime.now().date()
+        month_start = today.replace(day=1)
+        # Calculate month end
+        if today.month == 12:
+            month_end = today.replace(year=today.year + 1, month=1, day=1) - timedelta(days=1)
+        else:
+            month_end = today.replace(month=today.month + 1, day=1) - timedelta(days=1)
+        
+        # Try HA history first (single source of truth)
+        if self._is_ha_available():
+            try:
+                from ha.history import get_game_times_from_ha
+                game_times = get_game_times_from_ha(self.ha_client, user, month_start, month_end)
+                ha_time = game_times.get(game, 0.0)
+                logger.debug(f"User {user} game {game} monthly from HA: {ha_time:.1f} min")
+                
+                # Add time from active sessions for this game
+                active_time = 0
+                for session_id, session in self.active_sessions.items():
+                    if session['user'] == user and session['game'] == game:
+                        session_date = session['start_time'].date()
+                        if session_date >= month_start:
+                            elapsed = (datetime.now() - session['start_time']).total_seconds()
+                            active_time += elapsed / 60
+                
+                total_time = ha_time + active_time
+                return int(round(total_time))
+            except Exception as e:
+                logger.warning(f"Failed to get game monthly time from HA, falling back to SQLite: {e}")
+        
+        # Fallback to SQLite
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
+        month_start_str = month_start.isoformat()
         
-        # Calculate month start
-        today = datetime.now().date()
-        month_start = today.replace(day=1).isoformat()
-        
-        # Get completed sessions from database
         c.execute('''SELECT SUM(minutes_played) FROM game_stats 
                      WHERE user=? AND game=? AND date >= ?''',
-                 (user, game, month_start))
+                 (user, game, month_start_str))
         
         result = c.fetchone()
         completed_time = result[0] if result and result[0] is not None else 0
@@ -583,25 +797,46 @@ class PS5TimeManager:
         return int(round(total_time))
     
     def get_all_games_stats(self, user):
-        """Get stats for all games played by user, organized by period"""
-        # Get all unique games for this user
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        """Get stats for all games played by user, organized by period
         
-        c.execute('''SELECT DISTINCT game FROM game_stats WHERE user=? 
-                     UNION 
-                     SELECT DISTINCT game FROM sessions WHERE user=?''',
-                 (user, user))
+        Uses HA history if available, otherwise falls back to SQLite.
+        """
+        games = set()
         
-        games = [row[0] for row in c.fetchall()]
-        conn.close()
+        # Try to get games from HA history first
+        if self._is_ha_available():
+            try:
+                # Query last 90 days to get all games
+                start_date = (datetime.now() - timedelta(days=90)).date()
+                end_date = datetime.now().date()
+                from ha.history import get_game_times_from_ha
+                game_times = get_game_times_from_ha(self.ha_client, user, start_date, end_date)
+                games.update(game_times.keys())
+            except Exception as e:
+                logger.warning(f"Failed to get games from HA, falling back to SQLite: {e}")
+        
+        # Fallback to SQLite or add from sessions
+        if not games or not self._is_ha_available():
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            
+            c.execute('''SELECT DISTINCT game FROM game_stats WHERE user=? 
+                         UNION 
+                         SELECT DISTINCT game FROM sessions WHERE user=?''',
+                     (user, user))
+            
+            games.update([row[0] for row in c.fetchall()])
+            conn.close()
         
         # Add games from active sessions
         for session_id, session in self.active_sessions.items():
-            if session['user'] == user and session['game'] not in games:
-                games.append(session['game'])
+            if session['user'] == user and session['game']:
+                games.add(session['game'])
         
-        # Get stats for each game
+        # Remove None/empty games
+        games = {g for g in games if g and g not in ('None', 'Unknown Game', '')}
+        
+        # Get stats for each game (these methods now use HA history)
         game_stats = {}
         for game in games:
             game_stats[game] = {
@@ -643,6 +878,28 @@ class PS5TimeManager:
         conn.close()
         
         logger.info(f"Set limit for user {user}: {daily_minutes} minutes/day")
+    
+    def check_stale_sessions(self, timeout_minutes=5):
+        """Check for stale sessions that haven't received MQTT updates and end them
+        
+        Args:
+            timeout_minutes: Number of minutes without MQTT update before considering session stale
+        """
+        now = datetime.now()
+        timeout_threshold = timedelta(minutes=timeout_minutes)
+        stale_sessions = []
+        
+        for session_id, session in self.active_sessions.items():
+            last_update = session.get('last_update', session['start_time'])
+            time_since_update = now - last_update
+            
+            if time_since_update > timeout_threshold:
+                stale_sessions.append(session_id)
+                logger.warning(f"Session {session_id} is stale (no updates for {time_since_update.total_seconds()/60:.1f} min), ending session")
+        
+        # End stale sessions
+        for session_id in stale_sessions:
+            self.end_session(session_id)
 
     def get_user_access(self, user):
         """Return whether the specified user's access is allowed (default True)."""

@@ -126,13 +126,23 @@ def handle_device_update(ps5_id, data):
                         logger.info(f"[DEBUG:{player}] Session started (ID: {session_id}) for game {game_name}")
                     else:
                         logger.info(f"Started session for {player} playing {game_name} (ID: {session_id})")
-                # else: duplicate suppressed (logged in start_session)
+                
+                # Always update heartbeat for active players (whether new or existing session)
+                time_manager.update_session_heartbeat(player, ps5_id)
     elif activity in ['idle', 'none']:
-        # End sessions for this PS5
+        # Only end sessions for users who are no longer in the players list
+        # If players list is empty or doesn't contain the user, end their session
+        current_players = set(players or [])
         for session_id, session in list(time_manager.active_sessions.items()):
             if session['ps5_id'] == ps5_id:
-                time_manager.end_session(session_id)
-                logger.info(f"Ended session for PS5 {ps5_id}")
+                session_user = session['user']
+                # End session if user is no longer playing
+                if session_user not in current_players:
+                    time_manager.end_session(session_id)
+                    logger.info(f"Ended session for {session_user} on PS5 {ps5_id} (user no longer in players list)")
+                else:
+                    # User still playing - update heartbeat
+                    time_manager.update_session_heartbeat(session_user, ps5_id)
     
     # Handle power state
     power = data.get('power')

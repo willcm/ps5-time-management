@@ -297,9 +297,25 @@ def main():
     config = load_config()
     logger.info("Configuration loaded")
     
+    # Initialize HA client if enabled
+    ha_client = None
+    use_ha_history = config.get('use_ha_history', True)
+    if use_ha_history:
+        try:
+            from ha.client import HomeAssistantClient
+            ha_url = config.get('ha_api_url', 'http://supervisor')
+            ha_token = config.get('ha_api_token', '') or os.environ.get('SUPERVISOR_TOKEN')
+            ha_client = HomeAssistantClient(base_url=ha_url, token=ha_token)
+            if ha_client.is_available():
+                logger.info("Home Assistant API client initialized successfully")
+            else:
+                logger.warning("Home Assistant API not available, will use SQLite fallback")
+        except Exception as e:
+            logger.warning(f"Failed to initialize HA client: {e}, will use SQLite fallback")
+    
     # Initialize time manager
     db_path = config.get('database_path', '/data/ps5_time_management.db')
-    time_manager = PS5TimeManager(db_path)
+    time_manager = PS5TimeManager(db_path, ha_client=ha_client, use_ha_history=use_ha_history)
     
     # Register all Flask routes now that time_manager is initialized
     register_all_routes()
