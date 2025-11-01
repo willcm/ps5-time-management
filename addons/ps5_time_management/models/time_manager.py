@@ -20,13 +20,15 @@ def set_latest_device_status(status):
 
 
 class PS5TimeManager:
-    def __init__(self, db_path, ha_client=None, use_ha_history=True):
+    def __init__(self, db_path, ha_client=None, use_ha_history=True, mqtt_client=None, mqtt_config=None):
         """Initialize PS5TimeManager
         
         Args:
             db_path: Path to SQLite database
             ha_client: HomeAssistantClient instance (optional)
             use_ha_history: Whether to use HA history as source of truth
+            mqtt_client: MQTT client instance (optional, for checking retained messages)
+            mqtt_config: MQTT configuration dict (optional, for topic prefix)
         """
         self.db_path = db_path
         self.init_database()
@@ -36,6 +38,8 @@ class PS5TimeManager:
         self.ha_client = ha_client
         self.use_ha_history = use_ha_history and ha_client is not None
         self._ha_available = None  # Cache HA availability check
+        self.mqtt_client = mqtt_client
+        self.mqtt_config = mqtt_config or {}
     
     def add_user_if_new(self, user: str) -> None:
         """Persist a discovered user if not already stored."""
