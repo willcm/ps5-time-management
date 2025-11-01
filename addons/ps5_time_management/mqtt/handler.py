@@ -152,14 +152,33 @@ def handle_device_update(ps5_id, data):
                     # User still playing - update heartbeat
                     time_manager.update_session_heartbeat(session_user, ps5_id)
     
-    # Handle power state
+    # Handle power state - check this early and always process it
     power = data.get('power')
     if power == 'STANDBY':
         # End all sessions for this PS5 when it goes to standby
+        sessions_ended = []
         for session_id, session in list(time_manager.active_sessions.items()):
-            if session['ps5_id'] == ps5_id:
+            if session['ps5_id'] == ps5_id or session.get('ps5_id') == 'unknown':
+                # End session - either matches this PS5 or is a restored session with unknown PS5
                 time_manager.end_session(session_id)
-                logger.info(f"Ended session due to PS5 {ps5_id} going to standby")
+                sessions_ended.append(session_id)
+                logger.info(f"Ended session {session_id} due to PS5 {ps5_id} going to standby")
+        
+        if sessions_ended:
+            logger.info(f"Ended {len(sessions_ended)} session(s) due to PS5 {ps5_id} going to standby")
+    
+    # Also check power state for any restored sessions with unknown PS5
+    # This handles cases where we restored a session but the device is actually in standby
+    if power and power != 'STANDBY':
+        # Device is not in standby, but check for stale restored sessions
+        # (sessions that were restored but device update hasn't come yet)
+        pass  # Will be handled when actual activity/players update arrives
+    elif power == 'STANDBY':
+        # Device is in standby - ensure all restored sessions are cleared
+        restored_sessions = [sid for sid, s in time_manager.active_sessions.items() if s.get('restored')]
+        for sid in restored_sessions:
+            time_manager.end_session(sid)
+            logger.info(f"Cleared restored session {sid} because device is in STANDBY")
     
     # Update sensor states for all discovered users (only if MQTT is ready)
     if mqtt_connected and mqtt_client is not None:

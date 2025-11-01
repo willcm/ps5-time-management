@@ -366,7 +366,17 @@ class PS5TimeManager:
                             active_time += elapsed / 60
                 
                 # If no active sessions in memory, check for active session via MQTT retained message or HA
-                if active_time == 0:
+                # BUT: Don't restore if we know the device is in STANDBY (check latest device status)
+                should_check_restored = True
+                try:
+                    # Check if device is in standby (if we have latest status)
+                    if latest_device_status and latest_device_status.get('power') == 'STANDBY':
+                        should_check_restored = False
+                        logger.debug(f"Skipping session restoration for {user} - device is in STANDBY")
+                except Exception:
+                    pass  # If check fails, proceed with restoration check
+                
+                if active_time == 0 and should_check_restored:
                     # First try MQTT retained message (faster and more reliable after restart)
                     session_active_state = None
                     if self.mqtt_client:
