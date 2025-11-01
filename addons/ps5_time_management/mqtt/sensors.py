@@ -153,6 +153,32 @@ def update_user_sensor_states(user):
         weekly_time = time_manager.get_user_weekly_time(user)
         monthly_time = time_manager.get_user_monthly_time(user)
         
+        # Ensure values never decrease (for state_class: total sensors)
+        # This prevents the graph from going down when calculation errors occur
+        # However, reset at midnight (new day) - check if date changed
+        from datetime import date
+        today = date.today()
+        
+        if user not in last_published_values:
+            last_published_values[user] = {'daily': 0, 'weekly': 0, 'monthly': 0, 'last_date': today}
+        
+        # If it's a new day, reset daily (but keep weekly/monthly as they span multiple days)
+        if last_published_values[user].get('last_date') != today:
+            last_published_values[user]['daily'] = 0
+            last_published_values[user]['last_date'] = today
+            logger.debug(f"New day detected for {user}, resetting daily playtime baseline")
+        
+        # Only increase values - never decrease (Home Assistant state_class: total expects this)
+        # But allow new day to reset daily value
+        daily_time = max(daily_time, last_published_values[user].get('daily', 0) if last_published_values[user].get('last_date') == today else 0)
+        weekly_time = max(weekly_time, last_published_values[user].get('weekly', 0))
+        monthly_time = max(monthly_time, last_published_values[user].get('monthly', 0))
+        
+        # Update last published values
+        last_published_values[user]['daily'] = daily_time
+        last_published_values[user]['weekly'] = weekly_time
+        last_published_values[user]['monthly'] = monthly_time
+        
         # Get current session info
         current_session = None
         for session_id, session in time_manager.active_sessions.items():
@@ -174,8 +200,8 @@ def update_user_sensor_states(user):
         # Publish sensor states
         base_topic = f"ps5_time_management/{user}"
         
-        # Daily playtime
-        mqtt_client.publish(f"{base_topic}/daily", str(daily_time), retain=True)
+        # Daily playtime (ensured to only increase)
+        mqtt_client.publish(f"{base_topic}/daily", str(int(daily_time)), retain=True)
         
         # Weekly playtime
         mqtt_client.publish(f"{base_topic}/weekly", str(weekly_time), retain=True)
