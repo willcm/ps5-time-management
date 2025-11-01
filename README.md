@@ -1,6 +1,7 @@
 # PS5 Time Management
 
 [![Open your Home Assistant instance and show the add-on repository.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fwillcm%2Fps5-time-management)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/willcm)
 
 A comprehensive Home Assistant add-on for tracking and managing PlayStation 5 playtime with advanced parental controls and time limits.
 
