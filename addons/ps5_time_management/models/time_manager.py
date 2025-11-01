@@ -362,7 +362,11 @@ class PS5TimeManager:
                 
                 total_time = ha_time + active_time
                 logger.info(f"User {user} time today: {ha_time:.1f} min (HA) + {active_time:.1f} min active = {total_time:.1f} min total")
-                return int(round(total_time))
+                # Ensure we don't return 0 if HA history exists but calculation might be incomplete
+                # If we have HA history but total is 0, and there's an active session, use active time
+                if ha_time == 0 and active_time > 0:
+                    logger.debug(f"HA returned 0 but active session exists - using active time: {active_time:.1f} min")
+                return max(0, int(round(total_time)))
             except Exception as e:
                 logger.warning(f"Failed to get time from HA, falling back to SQLite: {e}")
         

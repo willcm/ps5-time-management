@@ -136,13 +136,56 @@ def get_daily_time_from_ha(client, user: str, date: datetime.date) -> float:
     entity_id = f"binary_sensor.ps5_time_management_{user.lower()}_session_active"
     
     start_time = datetime.combine(date, datetime.min.time())
-    end_time = datetime.combine(date, datetime.max.time())
+    now = datetime.now()
+    # Query up to now, not end of day, to get current state
+    end_time = min(datetime.combine(date, datetime.max.time()), now)
     
     history = client.get_history(entity_id, start_time=start_time, end_time=end_time)
     if not history:
+        # Check if sensor is currently ON (might be active but no history yet)
+        current_state = client.get_state(entity_id)
+        if current_state and current_state.get('state', '').upper() == 'ON':
+            # Sensor is ON - calculate from last changed or start of day
+            last_changed_str = current_state.get('last_changed') or current_state.get('last_updated')
+            if last_changed_str:
+                try:
+                    if last_changed_str.endswith('+00:00') or last_changed_str.endswith('Z'):
+                        last_changed = datetime.fromisoformat(last_changed_str.replace('Z', '+00:00'))
+                    else:
+                        last_changed = datetime.fromisoformat(last_changed_str)
+                    
+                    if last_changed.date() == date:
+                        # Count time from last change to now
+                        time_minutes = (now - last_changed).total_seconds() / 60.0
+                        logger.debug(f"No history but sensor is ON - adding {time_minutes:.1f} min from {last_changed}")
+                        return time_minutes
+                except Exception as e:
+                    logger.debug(f"Failed to parse last_changed for current state: {e}")
         return 0.0
     
-    return calculate_time_from_binary_sensor_history(history, start_time, end_time)
+    calculated_time = calculate_time_from_binary_sensor_history(history, start_time, end_time)
+    
+    # Check if sensor is currently ON (current state might not be in history yet)
+    current_state = client.get_state(entity_id)
+    if current_state and current_state.get('state', '').upper() == 'ON':
+        # Sensor is ON now - check if we need to add time from last state change
+        last_changed_str = current_state.get('last_changed') or current_state.get('last_updated')
+        if last_changed_str:
+            try:
+                if last_changed_str.endswith('+00:00') or last_changed_str.endswith('Z'):
+                    last_changed = datetime.fromisoformat(last_changed_str.replace('Z', '+00:00'))
+                else:
+                    last_changed = datetime.fromisoformat(last_changed_str)
+                
+                # If last change was today and after our calculated window, add the time
+                if last_changed.date() == date and last_changed >= end_time:
+                    additional_time = (now - last_changed).total_seconds() / 60.0
+                    calculated_time += additional_time
+                    logger.debug(f"Added {additional_time:.1f} min from current ON state since {last_changed}")
+            except Exception as e:
+                logger.debug(f"Failed to parse last_changed for current state: {e}")
+    
+    return calculated_time
 
 
 def get_weekly_time_from_ha(client, user: str, week_start: datetime.date) -> float:
