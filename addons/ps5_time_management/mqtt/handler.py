@@ -56,10 +56,16 @@ def handle_device_update(ps5_id, data):
         if new_power:
             logger.debug(f"Updating power state for PS5 {ps5_id}: {current_power} -> {new_power}")
         
+        # If device_status is offline, override power to STANDBY if not explicitly set
+        new_device_status = data.get('device_status')
+        if new_device_status == 'offline' and not new_power:
+            new_power = 'STANDBY'
+            logger.debug(f"Device {ps5_id} is offline - setting power to STANDBY")
+        
         latest_device_status.update({
             'ps5_id': ps5_id,
             'power': new_power if new_power else latest_device_status.get('power'),
-            'device_status': data.get('device_status', latest_device_status.get('device_status')),
+            'device_status': new_device_status if new_device_status else latest_device_status.get('device_status'),
             'activity': data.get('activity', latest_device_status.get('activity')),
             'players': players or [],
             'title_id': data.get('title_id', latest_device_status.get('title_id')),
@@ -67,6 +73,11 @@ def handle_device_update(ps5_id, data):
             'title_image': data.get('title_image', latest_device_status.get('title_image')),
             'last_update': datetime.now().isoformat()
         })
+        
+        # If device_status is offline, ensure power is STANDBY
+        if latest_device_status.get('device_status') == 'offline' and latest_device_status.get('power') != 'STANDBY':
+            logger.debug(f"Device {ps5_id} status is offline but power wasn't STANDBY - correcting")
+            latest_device_status['power'] = 'STANDBY'
         # Update the models module so PS5TimeManager can access it
         set_latest_device_status(latest_device_status)
         
