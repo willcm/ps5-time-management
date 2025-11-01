@@ -23,38 +23,33 @@ class HomeAssistantClient:
         self.base_url = base_url or os.environ.get('SUPERVISOR_API', 'http://supervisor')
         self.supervisor_token = token or os.environ.get('SUPERVISOR_TOKEN') or os.environ.get('HA_TOKEN')
         
-        # When using supervisor API with hassio_api: true and hassio_role: homeassistant
-        # Supervisor automatically handles authentication - no token needed
+        # When using supervisor proxy to Home Assistant Core API
+        # Need homeassistant_api: true in config.yaml and SUPERVISOR_TOKEN as bearer token
         if self.base_url == 'http://supervisor' or 'supervisor' in self.base_url:
             # Use /core/api endpoint - Supervisor proxies to Home Assistant Core API
-            # With hassio_role: homeassistant, no authentication header needed
             self.api_base = f"{self.base_url}/core/api"
+            # Must use SUPERVISOR_TOKEN as bearer token per HA docs
+            if not self.supervisor_token:
+                logger.error("SUPERVISOR_TOKEN required for Home Assistant Core API access")
         else:
             # Direct HA URL (e.g., http://homeassistant:8123) - requires long-lived access token
             if not self.base_url.startswith('http'):
                 self.base_url = f"http://{self.base_url}"
             self.api_base = f"{self.base_url}/api"
         
-        # Set headers - for supervisor /core/api, no auth needed with hassio_role
-        # Supervisor handles authentication automatically when hassio_api: true is set
-        if 'supervisor' in self.api_base and '/core/api' in self.api_base:
-            # Supervisor API - no authentication header needed with hassio_role: homeassistant
-            self.headers = {
-                'Content-Type': 'application/json'
-            }
-            logger.debug("Using Supervisor API without auth header (hassio_role: homeassistant)")
-        elif self.supervisor_token:
-            # Direct HA API or other endpoints - use token
+        # Set headers - SUPERVISOR_TOKEN is required as bearer token for /core/api
+        if self.supervisor_token:
             self.headers = {
                 'Content-Type': 'application/json',
                 'Authorization': f'Bearer {self.supervisor_token}'
             }
+            logger.debug("Using SUPERVISOR_TOKEN for Home Assistant Core API access")
         else:
             # No token available
             self.headers = {
                 'Content-Type': 'application/json'
             }
-            logger.warning("No token available for direct HA API access")
+            logger.error("SUPERVISOR_TOKEN not available - Home Assistant Core API access will fail")
         
         logger.info(f"Initialized HA client: api_base={self.api_base}, has_token={bool(self.supervisor_token)}")
     
@@ -83,9 +78,9 @@ class HomeAssistantClient:
                 pass
             
             if e.code == 401:
-                # For supervisor /core/api, 401 shouldn't happen per docs, but if it does, suggest enabling hassio_api
+                # For supervisor /core/api, need homeassistant_api: true and SUPERVISOR_TOKEN
                 if '/core/api' in self.api_base:
-                    logger.error(f"HA API authentication failed (401): {error_body}. Ensure hassio_api: true is set in config.yaml")
+                    logger.error(f"HA API authentication failed (401): {error_body}. Ensure homeassistant_api: true is set in config.yaml and SUPERVISOR_TOKEN is available.")
                 else:
                     logger.error(f"HA API authentication failed (401): {error_body}. Check SUPERVISOR_TOKEN availability.")
             elif e.code == 404:
