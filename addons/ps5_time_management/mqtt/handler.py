@@ -106,7 +106,14 @@ def handle_device_update(ps5_id, data):
                     publish_user_sensors_func(player)
     
     # Handle activity changes
+    # According to ps5-mqtt docs:
+    # - activity: "playing" = PS5 is AWAKE and has active game (players array present)
+    # - activity: "idle" = PS5 is AWAKE but no active game (players array NOT present)
+    # - activity: "none" = PS5 is in STANDBY or UNKNOWN
     activity = data.get('activity')
+    
+    logger.debug(f"Device {ps5_id} activity: {activity}, power: {latest_device_status.get('power')}, players: {players}")
+    
     if activity == 'playing' and players:
         # Start tracking session for active players
         for player in players:
@@ -169,20 +176,21 @@ def handle_device_update(ps5_id, data):
                 
                 # Always update heartbeat for active players (whether new or existing session)
                 time_manager.update_session_heartbeat(player, ps5_id)
-    elif activity in ['idle', 'none']:
-        # Only end sessions for users who are no longer in the players list
-        # If players list is empty or doesn't contain the user, end their session
+    elif activity == 'idle':
+        # Device is AWAKE but no active game
+        # According to ps5-mqtt docs: when idle, players array is NOT present (empty or missing)
+        # End all sessions for this PS5 since there's no active game
+        logger.info(f"Device {ps5_id} is AWAKE but idle (no active game) - ending all sessions")
         current_players = set(players or [])
         for session_id, session in list(time_manager.active_sessions.items()):
             if session['ps5_id'] == ps5_id:
                 session_user = session['user']
-                # End session if user is no longer playing
-                if session_user not in current_players:
-                    time_manager.end_session(session_id)
-                    logger.info(f"Ended session for {session_user} on PS5 {ps5_id} (user no longer in players list)")
-                else:
-                    # User still playing - update heartbeat
-                    time_manager.update_session_heartbeat(session_user, ps5_id)
+                # End session - device is idle, no game active
+                time_manager.end_session(session_id)
+                logger.info(f"Ended session for {session_user} on PS5 {ps5_id} (device is idle)")
+    elif activity == 'none':
+        # Device is in STANDBY or UNKNOWN - this is handled by power state check below
+        logger.debug(f"Device {ps5_id} activity is 'none' (power state: {latest_device_status.get('power')})")
     
     # Handle power state and device_status - check this early and always process it
     # According to ps5-mqtt documentation:
