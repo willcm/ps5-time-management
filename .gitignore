@@ -1,0 +1,17 @@
+*.db
+*.pyc
+__pycache__/
+.env
+.vscode/
+*.log
+data/
+.DS_Store
+
+# Home Assistant specific
+local/
+addon_config/
+options.json.backup
+
+# PS5-MQTT reference files (not needed in our repository)
+ps5-mqtt-main/
+ps5-mqtt-plugin-doc.txt

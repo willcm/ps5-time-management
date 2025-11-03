@@ -1,0 +1,41 @@
+name: PS5 Time Management
+version: 1.0.0
+slug: ps5_time_management
+description: Track and manage PS5 playtime with user authentication, time limits, and parental controls
+url: https://github.com/willcm/ps5-time-management
+startup: application
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+boot: auto
+host_network: true
+ingress: true
+ingress_port: 8080
+panel_icon: mdi:sony-playstation
+stage: stable
+homeassistant: 2023.1.0
+services:
+  - mqtt:need
+stdin: true
+map:
+  - config:rw
+options:
+  mqtt: {}
+  mqtt_topic_prefix: ps5-mqtt
+  database_path: /data/ps5_time_management.db
+  log_level: INFO
+  admin_pin: "0000"
+schema:
+  mqtt:
+    host: str?
+    port: port?
+    user: str?
+    pass: str?
+    discovery_topic: str?
+  mqtt_topic_prefix: str
+  database_path: str
+  log_level: str
+  admin_pin: str

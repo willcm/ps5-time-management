@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PS5 Time Management</title>
+  <link rel="stylesheet" href="./globals.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .toggle-switch { position: relative; display: inline-flex; height: 2rem; width: 4rem; align-items: center; border-radius: 9999px; transition: background-color 0.2s; cursor: pointer; }
+    .toggle-switch.active { background-color: rgb(37 99 235); }
+    .toggle-switch:not(.active) { background-color: rgb(75 85 99); }
+    .toggle-slider { display: inline-block; height: 1.25rem; width: 1.25rem; transform: translateX(0.375rem); border-radius: 9999px; background-color: white; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1); transition: transform 0.2s; }
+    .toggle-switch.active .toggle-slider { transform: translateX(2.375rem); }
+  </style>
+</head>
+<body class="min-h-screen bg-background text-foreground">
+  <div class="min-h-screen bg-background p-4 md:p-6 lg:p-8">
+    <div class="mx-auto max-w-7xl space-y-6">
+      <div class="flex items-center justify-between" style="padding-left: 24px; padding-right: 24px;">
+        <div class="flex items-center gap-3">
+          <img src="./ps5.svg" alt="PS5" class="h-8 w-8" />
+          <h1 class="text-3xl font-bold tracking-tight">PS5 Time Management</h1>
+        </div>
+        <a href="./admin" class="inline-flex items-center gap-2 rounded-full bg-primary/90 hover:bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+          Admin
+        </a>
+      </div>
+
+      <div class="bg-card rounded-2xl shadow-none p-6">
+        <div class="pb-3">
+          <h2 class="flex items-center gap-2 text-base font-semibold" style="height: 2rem; line-height: 1;">
+            <span id="status-badge" class="h-8 flex items-center justify-center bg-secondary/80 text-secondary-foreground font-medium text-xs px-2.5 rounded-full" style="line-height: 1; padding-top: 0.5rem; padding-bottom: 0.5rem; font-size: 0.9rem;">Loading…</span>
+            <span id="standby-toggle-container" class="hidden ml-2">
+              <button id="standby-toggle" class="toggle-switch" onclick="toggleStandby()" role="switch" aria-checked="false">
+                <span class="toggle-slider"></span>
+              </button>
+            </span>
+          </h2>
+        </div>
+        <div class="flex items-center gap-4" style="margin-top: 2rem;">
+          <img id="game-cover" class="hidden h-16 w-16 rounded-lg object-cover bg-muted" alt="Game" />
+          <div class="flex flex-col gap-1">
+            <div id="players-line" class="text-sm text-foreground hidden"></div>
+            <div id="game-line" class="text-sm text-foreground hidden"></div>
+          </div>
+        </div>
+        
+      </div>
+
+      <div class="space-y-4">
+        <div id="users-container" class="grid gap-4"></div>
+        <div id="loading" class="text-sm text-muted-foreground">Loading users…</div>
+        <div id="error" class="hidden text-sm text-destructive"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function badgeFor(power) {
+      if (!power) return 'bg-zinc-700 text-white';
+      power = String(power).toUpperCase();
+      if (power === 'AWAKE') return 'bg-green-600 text-white';
+      // All other states (STANDBY, UNKNOWN, offline) = Off
+      return 'bg-zinc-600 text-white';
+    }
+    
+    function statusText(power) {
+      if (!power) return 'PS5 is Off';
+      power = String(power).toUpperCase();
+      if (power === 'AWAKE') return 'PS5 is On';
+      // All other states (STANDBY, UNKNOWN, offline) = Off
+      return 'PS5 is Off';
+    }
+    
+    let currentPs5Id = null;
+    async function fetchStatus(){
+      try {
+        const r = await fetch('./api/status');
+        const s = await r.json();
+        const badge = document.getElementById('status-badge');
+        const playersLine = document.getElementById('players-line');
+        const gameLine = document.getElementById('game-line');
+        const cover = document.getElementById('game-cover');
+        const standbyToggleContainer = document.getElementById('standby-toggle-container');
+        const standbyToggle = document.getElementById('standby-toggle');
+        const power = (s && s.power) || 'UNKNOWN';
+        currentPs5Id = s && s.ps5_id;
+        badge.className = 'font-medium text-xs px-2.5 py-0.5 rounded-full ' + badgeFor(power);
+        badge.textContent = statusText(power);
+        
+        // Show standby toggle if PS5 is awake - blue when awake
+        if (power === 'AWAKE' && currentPs5Id) {
+          standbyToggleContainer.classList.remove('hidden');
+          standbyToggle.classList.add('active');
+          standbyToggle.setAttribute('aria-checked', 'true');
+        } else {
+          standbyToggleContainer.classList.add('hidden');
+          standbyToggle.classList.remove('active');
+          standbyToggle.setAttribute('aria-checked', 'false');
+        }
+
+        // Players
+        const players = (s && s.players) || (s && s.active_sessions && s.active_sessions.map(a=>a.user)) || [];
+        if (players && players.length) {
+          playersLine.textContent = 'Players: ' + players.join(', ');
+          playersLine.classList.remove('hidden');
+        } else {
+          playersLine.classList.add('hidden');
+        }
+        // Game title + cover
+        const titleName = (s && (s.title_name || (s.title && s.title.name)));
+        const titleImage = (s && (s.title_image || (s.title && s.title.image)));
+        if (titleName || titleImage) {
+          gameLine.textContent = titleName ? 'Game: ' + titleName : '';
+          gameLine.classList.toggle('hidden', !titleName);
+          if (titleImage) {
+            cover.src = titleImage; cover.classList.remove('hidden');
+          } else { cover.classList.add('hidden'); }
+        } else {
+          gameLine.classList.add('hidden'); cover.classList.add('hidden');
+        }
+      } catch(e){ /* ignore */ }
+    }
+
+    function icon(name){
+      if(name==='clock') return '<svg class="h-3.5 w-3.5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+      if(name==='calendar') return '<svg class="h-3.5 w-3.5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>';
+      return '';
+    }
+
+    function fmtRemaining(mins){
+      if(!mins || mins <= 0) return '0m';
+      if(mins % 60 === 0) return (mins/60)+'h';
+      if(mins > 60) return Math.floor(mins/60)+'h '+(mins%60)+'m';
+      return mins+'m';
+    }
+
+    function getRemainingColor(mins){
+      if(!mins || mins <= 0) return 'text-red-500';  // 0 or less = red
+      if(mins <= 10) return 'text-orange-400';       // 1-10 = orange
+      return 'text-green-500';                       // 11+ = green
+    }
+
+    function cardHtml(user, stats, allowed){
+      return `
+      <div class="bg-card rounded-2xl shadow-none" data-user="${user}"> 
+        <div class="p-6 pb-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-lg font-semibold">${user}</h3>
+            <div class="flex items-center gap-3">
+              <span class="text-sm text-muted-foreground">Access</span>
+              <button class="toggle-switch ${allowed ? 'active' : ''}" onclick="toggleAccess(this, '${user}')" role="switch" aria-checked="${!!allowed}"><span class="toggle-slider"></span></button>
+              <a href="./stats/${user}" class="inline-flex items-center gap-1.5 rounded-full bg-blue-600 hover:bg-blue-500 text-xs h-8 px-3 font-medium text-white"><svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>View Stats</a>
+            </div>
+          </div>
+        </div>
+        <div class="px-6 pb-6 space-y-3">
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-2"> 
+            <div class="bg-secondary/30 rounded-xl p-3"><div class="flex items-center gap-1.5 text-muted-foreground mb-3">${icon('clock')}<span class="text-xs font-medium">Today</span></div><p class="text-4xl font-bold text-foreground" data-stat="${user}-daily">${stats.daily}m</p></div>
+            <div class="bg-secondary/30 rounded-xl p-3"><div class="flex items-center gap-1.5 text-muted-foreground mb-3">${icon('calendar')}<span class="text-xs font-medium">Last 7 Days</span></div><p class="text-4xl font-bold text-foreground" data-stat="${user}-weekly">${stats.weekly}m</p></div>
+            <div class="bg-secondary/30 rounded-xl p-3"><div class="flex items-center gap-1.5 text-muted-foreground mb-3">${icon('calendar')}<span class="text-xs font-medium">Last 30 Days</span></div><p class="text-4xl font-bold text-foreground" data-stat="${user}-monthly">${stats.monthly}m</p></div>
+            <div class="bg-secondary/30 rounded-xl p-3"><div class="flex items-center gap-1.5 text-muted-foreground mb-3">${icon('clock')}<span class="text-xs font-medium">Remaining</span></div><p class="text-4xl font-bold ${getRemainingColor(stats.remaining != null ? stats.remaining : 0)}" data-stat="${user}-remaining">${fmtRemaining(stats.remaining != null ? stats.remaining : 0)}</p></div>
+          </div>
+        </div>
+      </div>`
+    }
+
+    function updateUserStats(userCard, stats) {
+      // Update stats in place for existing user card
+      const dailyEl = userCard.querySelector(`[data-stat="${userCard.getAttribute('data-user')}-daily"]`);
+      const weeklyEl = userCard.querySelector(`[data-stat="${userCard.getAttribute('data-user')}-weekly"]`);
+      const monthlyEl = userCard.querySelector(`[data-stat="${userCard.getAttribute('data-user')}-monthly"]`);
+      const remainingEl = userCard.querySelector(`[data-stat="${userCard.getAttribute('data-user')}-remaining"]`);
+      
+      if (dailyEl) dailyEl.textContent = `${stats.daily}m`;
+      if (weeklyEl) weeklyEl.textContent = `${stats.weekly}m`;
+      if (monthlyEl) monthlyEl.textContent = `${stats.monthly}m`;
+      if (remainingEl) {
+        const remaining = stats.remaining != null ? stats.remaining : 0;
+        remainingEl.textContent = fmtRemaining(remaining);
+        // Update color class
+        remainingEl.className = 'text-4xl font-bold ' + getRemainingColor(remaining);
+      }
+    }
+
+    async function loadUsers(){
+      const cont = document.getElementById('users-container');
+      const loading = document.getElementById('loading');
+      const error = document.getElementById('error');
+      const isInitialLoad = cont.children.length === 0;
+      
+      // Only show loading indicator on initial load
+      if (isInitialLoad && loading) loading.classList.remove('hidden');
+      if (error) error.classList.add('hidden');
+      
+      try{
+        const r = await fetch('./api/users'); 
+        const data = await r.json();
+        const users = data.users || [];
+        const existingUserCards = new Set(Array.from(cont.querySelectorAll('[data-user]')).map(el => el.getAttribute('data-user')));
+        const newUsers = new Set(users);
+        
+        // Remove cards for users that no longer exist
+        existingUserCards.forEach(user => {
+          if (!newUsers.has(user)) {
+            const card = cont.querySelector(`[data-user="${user}"]`);
+            if (card) card.remove();
+          }
+        });
+        
+        // Update existing users or create new cards
+        for (const u of users){
+          const existingCard = cont.querySelector(`[data-user="${u}"]`);
+          
+          if (existingCard) {
+            // Update existing card - just fetch and update stats
+            const [statsResp, accessResp] = await Promise.all([
+              fetch(`./api/users/${u}/stats`),
+              fetch(`./api/access/${u}`)
+            ]);
+            const stats = await statsResp.json();
+            const access = await accessResp.json();
+            updateUserStats(existingCard, stats);
+            
+            // Update access toggle state
+            const toggle = existingCard.querySelector('.toggle-switch');
+            if (toggle) {
+              const shouldBeActive = !!access.allowed;
+              if (shouldBeActive) {
+                toggle.classList.add('active');
+                toggle.setAttribute('aria-checked', 'true');
+              } else {
+                toggle.classList.remove('active');
+                toggle.setAttribute('aria-checked', 'false');
+              }
+            }
+          } else {
+            // Create new card for new user
+            const [statsResp, accessResp] = await Promise.all([
+              fetch(`./api/users/${u}/stats`),
+              fetch(`./api/access/${u}`)
+            ]);
+            const stats = await statsResp.json();
+            const access = await accessResp.json();
+            cont.insertAdjacentHTML('beforeend', cardHtml(u, stats, !!access.allowed));
+          }
+        }
+      }catch(e){ 
+        if (error){ 
+          error.textContent = 'Failed to load users'; 
+          error.classList.remove('hidden'); 
+        } 
+      }
+      finally{ 
+        if (loading) loading.classList.add('hidden'); 
+      }
+    }
+
+    async function toggleAccess(btn, user){
+      btn.classList.toggle('active');
+      const allowed = btn.classList.contains('active');
+      btn.setAttribute('aria-checked', allowed);
+      try{ await fetch(`./api/access/${user}`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({allowed})}); }catch(e){}
+    }
+    async function refreshUser(user){ try{ await fetch(`./api/refresh/${user}`, {method:'POST'}); loadUsers(); }catch(e){} }
+    async function clearUserStats(user){ if(!confirm(`Clear all stats for ${user}?`)) return; try{ await fetch(`./api/cleanup/${user}`, {method:'POST'}); loadUsers(); }catch(e){} }
+    async function clearAllStats(){ 
+      if(!confirm('Clear all stats for ALL users? This cannot be undone.')) return; 
+      try{ 
+        await fetch(`./api/cleanup/all`, {method:'POST'}); 
+        loadUsers(); 
+      }catch(e){
+        alert('Failed to clear all stats: ' + e.message);
+      }
+    }
+    
+    async function toggleStandby(){
+      if (!currentPs5Id) {
+        alert('PS5 ID not available');
+        return;
+      }
+      try {
+        const response = await fetch('./api/standby', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ps5_id: currentPs5Id})
+        });
+        const result = await response.json();
+        if (result.success) {
+          // Update toggle state - turn grey (off) after sending standby
+          const toggle = document.getElementById('standby-toggle');
+          toggle.classList.remove('active');
+          toggle.setAttribute('aria-checked', 'false');
+        } else {
+          alert('Failed to send standby command: ' + (result.error || 'Unknown error'));
+        }
+      } catch(e) {
+        alert('Error sending standby command: ' + e.message);
+      }
+    }
+
+    // Initialize on page load
+    fetchStatus();
+    loadUsers();
+    
+    // Auto-refresh status every 5 seconds (console status, game info, etc.)
+    setInterval(() => {
+      fetchStatus();
+    }, 5000);
+    
+    // Auto-refresh user stats every 5 seconds to update time remaining and session data
+    setInterval(() => {
+      loadUsers();
+    }, 5000);
+
+    // Removed temporary cache viewer
+  </script>
+</body>
+</html>
+
+

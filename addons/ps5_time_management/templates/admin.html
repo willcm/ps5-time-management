@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin - PS5 Time Management</title>
+  <link rel="stylesheet" href="./globals.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      10%, 30%, 50%, 70%, 90% { transform: translateX(-10px); }
+      20%, 40%, 60%, 80% { transform: translateX(10px); }
+    }
+    .shake {
+      animation: shake 0.5s;
+    }
+    
+    .save-btn {
+      transition: width 0.4s ease-in-out,
+                  box-shadow 1.5s ease,
+                  background-color 0.2s linear 0.4s;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .save-btn-saving .button-text {
+      transition: color 0.1s linear;
+      color: white;
+    }
+    
+    .save-btn-onclick {
+      width: 40px !important;
+      height: 40px !important;
+      min-width: 40px !important;
+      font-size: 0 !important;
+      padding: 0 !important;
+      background-image: none !important;
+      background-color: rgb(34, 197, 94) !important;
+      box-shadow: none !important;
+      cursor: default;
+      pointer-events: none;
+      border-radius: 50% !important;
+    }
+    
+    .save-btn-onclick .button-text {
+      display: none;
+    }
+    
+    .save-btn-checkmark {
+      display: none;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+    }
+    
+    .save-btn-checkmark.show-checkmark {
+      display: inline-block;
+    }
+    
+    .save-btn-checkmark svg {
+      width: 24px;
+      height: 24px;
+      padding: 0;
+      padding-left: 1px;
+    }
+    
+    .save-btn-checkmark svg .path {
+      stroke-linecap: round;
+      stroke-dasharray: 30;
+      stroke-dashoffset: 30;
+      animation: checkmark-dash 0.5s ease forwards;
+    }
+    
+    @keyframes checkmark-dash {
+      to {
+        stroke-dashoffset: 0;
+      }
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-background text-foreground">
+  <div class="min-h-screen bg-background p-4 md:p-6 lg:p-8">
+    <div class="mx-auto max-w-7xl space-y-6">
+      <div class="flex items-center justify-between" style="padding-left: 24px; padding-right: 24px;">
+        <div class="flex items-center gap-3">
+          <img src="./ps5.svg" alt="PS5" class="h-8 w-8" />
+          <h1 class="text-3xl font-bold tracking-tight">Admin Settings</h1>
+        </div>
+        <a href="./" class="inline-flex items-center gap-2 rounded-full bg-secondary/80 hover:bg-secondary px-4 py-2 text-sm font-medium">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+          Back
+        </a>
+      </div>
+
+      <!-- PIN Entry Screen -->
+      <div id="pin-screen" class="bg-card rounded-2xl shadow-none p-6">
+        <h2 class="text-xl font-semibold mb-6 text-center">Enter Admin PIN</h2>
+        <div class="space-y-6">
+          <!-- PIN Display -->
+          <div class="flex justify-center gap-4" style="margin-bottom: 3rem;">
+            <div id="pin-display-0" class="pin-dot w-4 h-4 rounded-full border-2 transition-all" style="border-color: rgb(156, 163, 175); background-color: transparent; width: 16px; height: 16px;"></div>
+            <div id="pin-display-1" class="pin-dot w-4 h-4 rounded-full border-2 transition-all" style="border-color: rgb(156, 163, 175); background-color: transparent; width: 16px; height: 16px;"></div>
+            <div id="pin-display-2" class="pin-dot w-4 h-4 rounded-full border-2 transition-all" style="border-color: rgb(156, 163, 175); background-color: transparent; width: 16px; height: 16px;"></div>
+            <div id="pin-display-3" class="pin-dot w-4 h-4 rounded-full border-2 transition-all" style="border-color: rgb(156, 163, 175); background-color: transparent; width: 16px; height: 16px;"></div>
+          </div>
+          
+          <!-- Error Message -->
+          <div id="pin-error" class="hidden text-sm text-red-500 text-center min-h-[20px]"></div>
+          
+          <!-- iOS-style Numeric Keypad -->
+          <div class="grid grid-cols-3 gap-4 max-w-xs mx-auto">
+            <button onclick="pinKeypad(1)" class="keypad-btn rounded-full bg-white/5 hover:bg-white/10 active:bg-white/15 text-3xl font-light text-white transition-all touch-manipulation flex items-center justify-center" style="width: 70px; height: 70px; margin: 0 auto;">1</button>
+            <button onclick="pinKeypad(2)" class="keypad-btn rounded-full bg-white/5 hover:bg-white/10 active:bg-white/15 text-3xl font-light text-white transition-all touch-manipulation flex items-center justify-center" style="width: 70px; height: 70px; margin: 0 auto;">2</button>
+            <button onclick="pinKeypad(3)" class="keypad-btn rounded-full bg-white/5 hover:bg-white/10 active:bg-white/15 text-3xl font-light text-white transition-all touch-manipulation flex items-center justify-center" style="width: 70px; height: 70px; margin: 0 auto;">3</button>
+            <button onclick="pinKeypad(4)" class="keypad-btn rounded-full bg-white/5 hover:bg-white/10 active:bg-white/15 text-3xl font-light text-white transition-all touch-manipulation flex items-center justify-center" style="width: 70px; height: 70px; margin: 0 auto;">4</button>
+            <button onclick="pinKeypad(5)" class="keypad-btn rounded-full bg-white/5 hover:bg-white/10 active:bg-white/15 text-3xl font-light text-white transition-all touch-manipulation flex items-center justify-center" style="width: 70px; height: 70px; margin: 0 auto;">5</button>
+            <button onclick="pinKeypad(6)" class="keypad-btn rounded-full bg-white/5 hover:bg-white/10 active:bg-white/15 text-3xl font-light text-white transition-all touch-manipulation flex items-center justify-center" style="width: 70px; height: 70px; margin: 0 auto;">6</button>
+            <button onclick="pinKeypad(7)" class="keypad-btn rounded-full bg-white/5 hover:bg-white/10 active:bg-white/15 text-3xl font-light text-white transition-all touch-manipulation flex items-center justify-center" style="width: 70px; height: 70px; margin: 0 auto;">7</button>
+            <button onclick="pinKeypad(8)" class="keypad-btn rounded-full bg-white/5 hover:bg-white/10 active:bg-white/15 text-3xl font-light text-white transition-all touch-manipulation flex items-center justify-center" style="width: 70px; height: 70px; margin: 0 auto;">8</button>
+            <button onclick="pinKeypad(9)" class="keypad-btn rounded-full bg-white/5 hover:bg-white/10 active:bg-white/15 text-3xl font-light text-white transition-all touch-manipulation flex items-center justify-center" style="width: 70px; height: 70px; margin: 0 auto;">9</button>
+            <div class="col-span-3 grid grid-cols-3 gap-4" style="height: 70px;">
+              <div></div>
+              <div class="relative flex items-center justify-center">
+                <button onclick="pinKeypad(0)" class="keypad-btn rounded-full bg-white/5 hover:bg-white/10 active:bg-white/15 text-3xl font-light text-white transition-all touch-manipulation flex items-center justify-center" style="width: 70px; height: 70px;">0</button>
+              </div>
+              <div class="relative flex items-center justify-center">
+                <button id="delete-btn" onclick="pinBackspace()" class="rounded-full bg-transparent hover:bg-white/10 active:bg-white/15 transition-all touch-manipulation flex items-center justify-center hidden" style="width: 70px; height: 70px;">
+                  <svg class="h-10 w-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414 6.414a2 2 0 001.414.586H19a2 2 0 002-2V7a2 2 0 00-2-2h-8.172a2 2 0 00-1.414.586L3 12z"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Admin Content (hidden until PIN verified) -->
+      <div id="admin-content" class="hidden space-y-4">
+        <!-- Global Settings -->
+        <div class="bg-card rounded-2xl shadow-none p-6">
+          <h2 class="text-xl font-semibold mb-4">Global Settings</h2>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium mb-2">Default Daily Time Limit (minutes)</label>
+              <input type="number" id="default-daily-limit" min="0" class="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground" placeholder="120">
+              <p class="text-xs text-muted-foreground mt-1">Used when no per-user or per-day limit is set</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-2">Shutdown Warning Time (minutes)</label>
+              <input type="number" id="warning-time" min="0" class="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground" placeholder="1">
+              <p class="text-xs text-muted-foreground mt-1">Time before shutdown when warning is shown</p>
+            </div>
+            <div class="flex items-center gap-3">
+              <input type="checkbox" id="enable-auto-shutdown" class="w-5 h-5 rounded border-border bg-background">
+              <label for="enable-auto-shutdown" class="text-sm font-medium cursor-pointer">Enable Auto Shutdown of PS5</label>
+            </div>
+            <p class="text-xs text-muted-foreground">When enabled, PS5 will automatically go to standby when time limits are exceeded</p>
+            <button id="save-global-settings-btn" onclick="saveGlobalSettings()" class="save-btn hidden inline-flex items-center gap-2 rounded-full bg-green-600/90 hover:bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-sm">
+              <span class="button-text">Save Settings</span>
+              <span class="save-btn-checkmark">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                  <polyline class="path" fill="none" points="4,12 9,17 20,6" stroke="#fff" stroke-width="3"/>
+                </svg>
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between" style="padding-left: 24px; padding-right: 24px;">
+          <h2 class="text-xl font-semibold">User Time Limits</h2>
+          <button onclick="clearAllStats()" class="inline-flex items-center gap-2 rounded-full bg-red-600/90 hover:bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            Clear All Stats
+          </button>
+        </div>
+        <div class="bg-card rounded-2xl shadow-none p-6">
+          <p class="text-sm text-muted-foreground mb-4">
+            Set daily time limits for each user. 0 minutes means they cannot play at all on that day.
+          </p>
+          <div id="users-container" class="space-y-4">
+            <div class="text-sm text-muted-foreground">Loading users...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let isAuthenticated = false;
+    const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const DAYS_LOWER = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    let pinEntered = '';
+    let originalGlobalSettings = {};
+    let originalUserLimits = {};
+
+    function updatePinDisplay() {
+      for (let i = 0; i < 4; i++) {
+        const display = document.getElementById(`pin-display-${i}`);
+        if (i < pinEntered.length) {
+          // Show filled dot when digit is entered - iOS style (same size as placeholder)
+          display.style.backgroundColor = 'rgb(255, 255, 255)'; // white
+          display.style.borderColor = 'rgb(255, 255, 255)'; // white
+          display.style.width = '16px';
+          display.style.height = '16px';
+        } else {
+          // Show empty dot when no digit
+          display.style.backgroundColor = 'transparent';
+          display.style.borderColor = 'rgb(156, 163, 175)'; // gray-400
+          display.style.width = '16px';
+          display.style.height = '16px';
+        }
+      }
+      
+      // Show/hide delete button based on whether PIN has digits
+      const deleteBtn = document.getElementById('delete-btn');
+      if (pinEntered.length > 0) {
+        deleteBtn.classList.remove('hidden');
+      } else {
+        deleteBtn.classList.add('hidden');
+      }
+    }
+    
+    function shakeScreen() {
+      const pinScreen = document.getElementById('pin-screen');
+      pinScreen.classList.add('shake');
+      setTimeout(() => {
+        pinScreen.classList.remove('shake');
+      }, 500);
+    }
+
+    function pinKeypad(num) {
+      if (pinEntered.length < 4) {
+        pinEntered += num.toString();
+        updatePinDisplay();
+        
+        // Auto-verify when 4 digits entered (like iOS)
+        if (pinEntered.length === 4) {
+          setTimeout(() => verifyPin(), 300);
+        }
+      }
+    }
+
+    function pinBackspace() {
+      if (pinEntered.length > 0) {
+        pinEntered = pinEntered.slice(0, -1);
+        updatePinDisplay();
+      }
+    }
+
+    async function verifyPin() {
+      const pinError = document.getElementById('pin-error');
+      
+      if (pinEntered.length !== 4) {
+        return;
+      }
+
+      try {
+        const response = await fetch('./api/admin/verify-pin', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({pin: pinEntered})
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          // Success - auto-login
+          isAuthenticated = true;
+          document.getElementById('pin-screen').classList.add('hidden');
+          document.getElementById('admin-content').classList.remove('hidden');
+          pinError.classList.add('hidden');
+          loadGlobalSettings();
+          loadUsers();
+        } else {
+          // Wrong PIN - shake and show error
+          shakeScreen();
+          pinError.textContent = data.message || 'Invalid PIN';
+          pinError.classList.remove('hidden');
+          pinEntered = '';
+          updatePinDisplay();
+        }
+      } catch (e) {
+        // Error - shake and show error
+        shakeScreen();
+        pinError.textContent = 'Error verifying PIN: ' + e.message;
+        pinError.classList.remove('hidden');
+        pinEntered = '';
+        updatePinDisplay();
+      }
+    }
+
+    // Initialize display
+    updatePinDisplay();
+
+    async function loadUsers() {
+      try {
+        const response = await fetch('./api/admin/users');
+        const data = await response.json();
+        const users = data.users || [];
+        
+        const container = document.getElementById('users-container');
+        if (users.length === 0) {
+          container.innerHTML = '<div class="text-sm text-muted-foreground">No users discovered yet.</div>';
+          return;
+        }
+
+        let html = '';
+        for (const user of users) {
+          html += `<div class="bg-secondary/30 rounded-xl p-4" data-user="${user}">
+            <h3 class="text-lg font-semibold mb-4">${user}</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+              ${DAYS.map((day, idx) => `
+                <div>
+                  <label class="block text-xs text-muted-foreground mb-1">${day}</label>
+                  <input type="number" 
+                         min="0" 
+                         step="1"
+                         data-day="${DAYS_LOWER[idx]}"
+                         data-user="${user}"
+                         class="w-full px-3 py-2 bg-background border border-secondary rounded-lg text-sm"
+                         placeholder="No limit"
+                         onchange="updateLimit('${user}', '${DAYS_LOWER[idx]}', this.value)" />
+                </div>
+              `).join('')}
+            </div>
+            <div class="mt-3">
+              <button id="save-limits-btn-${user}" onclick="saveLimits('${user}')" 
+                      class="save-btn hidden rounded-full bg-green-600/90 hover:bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-sm">
+                <span class="button-text">Save Changes</span>
+                <span class="save-btn-checkmark">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                    <polyline class="path" fill="none" points="4,12 9,17 20,6" stroke="#fff" stroke-width="3"/>
+                  </svg>
+                </span>
+              </button>
+            </div>
+          </div>`;
+        }
+        container.innerHTML = html;
+
+        // Load existing limits for each user
+        for (const user of users) {
+          await loadUserLimits(user);
+          // Store original values and add change listeners
+          storeOriginalUserLimits(user);
+          addUserLimitChangeListeners(user);
+        }
+      } catch (e) {
+        const container = document.getElementById('users-container');
+        container.innerHTML = `<div class="text-sm text-red-500">Error loading users: ${e.message}</div>`;
+      }
+    }
+
+    async function loadUserLimits(user) {
+      try {
+        const response = await fetch(`./api/admin/limits/${user}`);
+        const data = await response.json();
+        const limits = data.limits || {};
+
+        for (const day of DAYS_LOWER) {
+          const input = document.querySelector(`input[data-user="${user}"][data-day="${day}"]`);
+          if (input && limits[day] !== null && limits[day] !== undefined) {
+            input.value = limits[day];
+          } else if (input) {
+            input.value = '';
+          }
+        }
+      } catch (e) {
+        console.error(`Error loading limits for ${user}:`, e);
+      }
+    }
+    
+    function storeOriginalUserLimits(user) {
+      if (!originalUserLimits[user]) {
+        originalUserLimits[user] = {};
+      }
+      for (const day of DAYS_LOWER) {
+        const input = document.querySelector(`input[data-user="${user}"][data-day="${day}"]`);
+        if (input) {
+          originalUserLimits[user][day] = input.value || '';
+        }
+      }
+    }
+    
+    function addUserLimitChangeListeners(user) {
+      for (const day of DAYS_LOWER) {
+        const input = document.querySelector(`input[data-user="${user}"][data-day="${day}"]`);
+        if (input) {
+          input.addEventListener('input', () => checkUserLimitsChanged(user));
+        }
+      }
+    }
+    
+    function checkUserLimitsChanged(user) {
+      let hasChanged = false;
+      
+      for (const day of DAYS_LOWER) {
+        const input = document.querySelector(`input[data-user="${user}"][data-day="${day}"]`);
+        const currentValue = input ? (input.value || '') : '';
+        const originalValue = originalUserLimits[user] ? (originalUserLimits[user][day] || '') : '';
+        
+        if (currentValue !== originalValue) {
+          hasChanged = true;
+          break;
+        }
+      }
+      
+      const saveBtn = document.getElementById(`save-limits-btn-${user}`);
+      if (saveBtn) {
+        if (hasChanged) {
+          saveBtn.classList.remove('hidden');
+        } else {
+          saveBtn.classList.add('hidden');
+        }
+      }
+    }
+    
+    function animateSaveButton(button, callback) {
+      // Store original button text
+      const buttonLabel = button.querySelector('.button-text');
+      const originalText = buttonLabel ? buttonLabel.textContent : '';
+      const checkmark = button.querySelector('.save-btn-checkmark');
+      
+      // Ensure button has save-btn class
+      if (!button.classList.contains('save-btn')) {
+        button.classList.add('save-btn');
+      }
+      
+      // Step 1: Change text to "Saving" and make it light gray
+      if (buttonLabel) {
+        buttonLabel.textContent = 'Saving';
+        button.classList.add('save-btn-saving');
+      }
+      
+      // Step 2: After 600ms, shrink button to circle
+      setTimeout(function() {
+        button.classList.add('save-btn-onclick');
+        button.classList.remove('save-btn-saving');
+        
+        // Step 3: After another 600ms (1200ms total), show checkmark
+        setTimeout(function() {
+          if (checkmark) {
+            checkmark.classList.add('show-checkmark');
+          }
+          
+          // Step 4: After checkmark animation completes, restore button
+          setTimeout(function() {
+            button.classList.remove('save-btn-onclick');
+            
+            if (checkmark) {
+              checkmark.classList.remove('show-checkmark');
+            }
+            
+            // Reset checkmark animation for next time
+            if (checkmark) {
+              const path = checkmark.querySelector('.path');
+              if (path) {
+                path.style.strokeDashoffset = '30';
+                // Force reflow to reset animation
+                void path.offsetWidth;
+              }
+            }
+            
+            // Restore original text
+            if (buttonLabel) {
+              buttonLabel.textContent = originalText;
+            }
+            
+            // Check if button should be hidden or shown
+            if (callback) {
+              callback();
+            }
+          }, 1000);
+        }, 600);
+      }, 600);
+    }
+
+    function updateLimit(user, day, value) {
+      // Input validation handled by HTML5 number input
+      // This is just for tracking changes if needed
+    }
+
+    async function saveLimits(user) {
+      const limits = {};
+      let hasChanges = false;
+
+      for (const day of DAYS_LOWER) {
+        const input = document.querySelector(`input[data-user="${user}"][data-day="${day}"]`);
+        if (input) {
+          const value = input.value.trim();
+          if (value === '') {
+            limits[day] = null;
+          } else {
+            const numValue = parseInt(value, 10);
+            if (!isNaN(numValue) && numValue >= 0) {
+              limits[day] = numValue;
+              hasChanges = true;
+            } else {
+              limits[day] = null;
+            }
+          }
+        } else {
+          limits[day] = null;
+        }
+      }
+
+      try {
+        const response = await fetch(`./api/admin/limits/${user}`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({limits: limits})
+        });
+
+        const data = await response.json();
+        if (data.success) {
+          // Update original values to reflect saved state
+          storeOriginalUserLimits(user);
+          
+          // Animate save button
+          const saveBtn = document.getElementById(`save-limits-btn-${user}`);
+          if (saveBtn) {
+            animateSaveButton(saveBtn, () => {
+              // After animation, check if button should be hidden or shown
+              checkUserLimitsChanged(user);
+            });
+          }
+        } else {
+          alert('Error saving limits: ' + (data.error || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Error saving limits: ' + e.message);
+      }
+    }
+
+    async function loadGlobalSettings() {
+      try {
+        const response = await fetch('./api/admin/settings');
+        const data = await response.json();
+        
+        const defaultLimit = data.default_daily_limit_minutes || '';
+        const warningTime = data.warning_before_shutdown_minutes || '';
+        const enableAutoShutdown = data.enable_auto_shutdown !== false;
+        
+        document.getElementById('default-daily-limit').value = defaultLimit;
+        document.getElementById('warning-time').value = warningTime;
+        document.getElementById('enable-auto-shutdown').checked = enableAutoShutdown;
+        
+        // Store original values (convert to strings for consistency with input.value)
+        originalGlobalSettings = {
+          default_daily_limit_minutes: defaultLimit.toString(),
+          warning_before_shutdown_minutes: warningTime.toString(),
+          enable_auto_shutdown: enableAutoShutdown
+        };
+        
+        // Add change listeners
+        document.getElementById('default-daily-limit').addEventListener('input', checkGlobalSettingsChanged);
+        document.getElementById('warning-time').addEventListener('input', checkGlobalSettingsChanged);
+        document.getElementById('enable-auto-shutdown').addEventListener('change', checkGlobalSettingsChanged);
+        
+        // Hide save button initially
+        document.getElementById('save-global-settings-btn').classList.add('hidden');
+      } catch (e) {
+        console.error('Error loading global settings:', e);
+      }
+    }
+    
+    function checkGlobalSettingsChanged() {
+      const currentDefaultLimit = (document.getElementById('default-daily-limit').value || '').toString();
+      const currentWarningTime = (document.getElementById('warning-time').value || '').toString();
+      const currentEnableAutoShutdown = document.getElementById('enable-auto-shutdown').checked;
+      
+      const originalDefaultLimit = (originalGlobalSettings.default_daily_limit_minutes || '').toString();
+      const originalWarningTime = (originalGlobalSettings.warning_before_shutdown_minutes || '').toString();
+      const originalEnableAutoShutdown = originalGlobalSettings.enable_auto_shutdown !== false;
+      
+      const hasChanged = (
+        currentDefaultLimit !== originalDefaultLimit ||
+        currentWarningTime !== originalWarningTime ||
+        currentEnableAutoShutdown !== originalEnableAutoShutdown
+      );
+      
+      const saveBtn = document.getElementById('save-global-settings-btn');
+      if (hasChanged) {
+        saveBtn.classList.remove('hidden');
+      } else {
+        saveBtn.classList.add('hidden');
+      }
+    }
+
+    async function saveGlobalSettings() {
+      const defaultDailyLimit = parseInt(document.getElementById('default-daily-limit').value);
+      const warningTime = parseInt(document.getElementById('warning-time').value);
+      const enableAutoShutdown = document.getElementById('enable-auto-shutdown').checked;
+      
+      if (isNaN(defaultDailyLimit) || defaultDailyLimit < 0) {
+        alert('Default daily limit must be a valid number >= 0');
+        return;
+      }
+      
+      if (isNaN(warningTime) || warningTime < 0) {
+        alert('Warning time must be a valid number >= 0');
+        return;
+      }
+      
+      try {
+        const response = await fetch('./api/admin/settings', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            default_daily_limit_minutes: defaultDailyLimit,
+            warning_before_shutdown_minutes: warningTime,
+            enable_auto_shutdown: enableAutoShutdown
+          })
+        });
+        
+        const data = await response.json();
+        if (data.status === 'success') {
+          // Update original values to reflect saved state
+          originalGlobalSettings = {
+            default_daily_limit_minutes: defaultDailyLimit.toString(),
+            warning_before_shutdown_minutes: warningTime.toString(),
+            enable_auto_shutdown: enableAutoShutdown
+          };
+          
+          // Animate save button
+          const saveBtn = document.getElementById('save-global-settings-btn');
+          if (saveBtn) {
+            animateSaveButton(saveBtn, () => {
+              // After animation, check if button should be hidden or shown
+              checkGlobalSettingsChanged();
+            });
+          }
+        } else {
+          alert('Error saving settings: ' + (data.error || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Error saving settings: ' + e.message);
+      }
+    }
+
+    async function clearAllStats() {
+      if (!confirm('Clear all stats for ALL users? This cannot be undone.')) return;
+      try {
+        await fetch('./api/cleanup/all', {method: 'POST'});
+        // Reload users to refresh the display
+        await loadUsers();
+        alert('All stats cleared successfully');
+      } catch (e) {
+        alert('Failed to clear all stats: ' + e.message);
+      }
+    }
+
+    // Initialize display on load
+    window.addEventListener('load', () => {
+      updatePinDisplay();
+    });
+  </script>
+</body>
+</html>
