@@ -6,6 +6,7 @@ import logging
 from flask import jsonify, request, render_template
 from datetime import datetime, timedelta
 from shutdown.manager import enforce_standby
+import shutdown.manager as shutdown_manager
 
 logger = logging.getLogger(__name__)
 
@@ -536,7 +537,8 @@ def register_mqtt_routes():
     @app.route('/api/standby', methods=['POST'])
     def api_standby():
         """Send standby command to PS5"""
-        if not mqtt_connected or mqtt_client is None:
+        # Check MQTT connection using shutdown manager's connection status (which is updated on connect)
+        if not shutdown_manager.mqtt_connected or shutdown_manager.mqtt_client is None:
             return jsonify({'success': False, 'error': 'MQTT not connected'}), 503
         
         try:
@@ -553,6 +555,7 @@ def register_mqtt_routes():
                 return jsonify({'success': False, 'error': 'ps5_id cannot be empty'}), 400
             
             # Call enforce_standby with manual reason
+            # Note: enforce_standby will also check MQTT connection status internally
             enforce_standby(ps5_id, user=None, reason='manual')
             
             return jsonify({'success': True, 'message': f'Standby command sent to PS5 {ps5_id}'})
