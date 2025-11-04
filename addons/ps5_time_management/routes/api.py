@@ -5,6 +5,7 @@ import sqlite3
 import logging
 from flask import jsonify, request, render_template
 from datetime import datetime, timedelta
+from shutdown.manager import enforce_standby
 
 logger = logging.getLogger(__name__)
 
@@ -531,6 +532,33 @@ def register_mqtt_routes():
             return jsonify({'events': rows})
         except Exception as e:
             return jsonify({'error': str(e)}), 500
+
+    @app.route('/api/standby', methods=['POST'])
+    def api_standby():
+        """Send standby command to PS5"""
+        if not mqtt_connected or mqtt_client is None:
+            return jsonify({'success': False, 'error': 'MQTT not connected'}), 503
+        
+        try:
+            data = request.get_json(force=True) or {}
+            ps5_id = data.get('ps5_id')
+            
+            # Validate ps5_id
+            if not ps5_id:
+                return jsonify({'success': False, 'error': 'ps5_id is required'}), 400
+            
+            # Ensure ps5_id is a string and not empty
+            ps5_id = str(ps5_id).strip()
+            if not ps5_id:
+                return jsonify({'success': False, 'error': 'ps5_id cannot be empty'}), 400
+            
+            # Call enforce_standby with manual reason
+            enforce_standby(ps5_id, user=None, reason='manual')
+            
+            return jsonify({'success': True, 'message': f'Standby command sent to PS5 {ps5_id}'})
+        except Exception as e:
+            logger.error(f"Error sending standby command: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 500
 
     @app.route('/api/images', methods=['GET'])
     def list_cached_images():
